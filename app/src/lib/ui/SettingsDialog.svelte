@@ -173,14 +173,13 @@
         {#if info}
           <span>App</span>
           <span>
-            Muster{info.dev ? " Dev" : ""} {info.version} · commit <code>{info.commit}</code>
+            Muster{info.dev ? " Dev" : ""} · commit <code>{info.commit}</code>
             {#if commitWhen(info.commitDate)}<small>{commitWhen(info.commitDate)}</small>{/if}
           </span>
         {/if}
         <span>Daemon</span>
         {#if daemon}
           <span>
-            {daemon.version} ·
             {#if daemon.commit}commit <code>{daemon.commit}</code>{:else}an older build that records no commit{/if}
             {#if commitWhen(daemon.commitDate)}<small>{commitWhen(daemon.commitDate)}</small>{/if}
           </span>

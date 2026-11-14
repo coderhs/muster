@@ -79,13 +79,16 @@
   }
   .dialog {
     max-width: 100%;
-    max-height: 100%;
+    /* The window's height less the scrim's padding: a dialog taller than the window
+       scrolls instead of running off both edges. */
+    max-height: calc(100vh - 48px);
     background: var(--bg-elev);
     border-radius: 12px;
     box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     animation: rise 0.12s ease-out;
   }
   @keyframes fade {
