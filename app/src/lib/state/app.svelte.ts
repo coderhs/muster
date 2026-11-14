@@ -27,6 +27,7 @@ import type {
   Result,
   Settings,
   Usage,
+  AgentAccount,
   DaemonStatus,
 } from "../protocol/types";
 import type { Platform } from "../connection";
@@ -76,7 +77,10 @@ export class AppState {
   focusTerminal = $state(false);
   /** Every card of every project, kept current from `card.changed`; feeds the tracker. */
   allCards = $state.raw<Record<Id, Card>>({});
-  usage = $state.raw<Usage | null>(null);
+  /** Account limits per agent id, merged by the daemon from every card's reports. */
+  usage = $state.raw<Record<string, Usage>>({});
+  /** Sign-in state per agent CLI; loaded when the tracker opens. */
+  accounts = $state.raw<AgentAccount[] | null>(null);
   settings = $state.raw<Settings | null>(null);
   daemonStatus = $state.raw<DaemonStatus | null>(null);
   /** Notices the user dismissed this session. */
@@ -146,7 +150,7 @@ export class AppState {
       if ("removedId" in p) this.removeCard(p.removedId, p.projectId);
       else this.applyCard(p.card);
     });
-    this.client.on("usage.changed", (p) => (this.usage = p.usage));
+    this.client.on("usage.changed", (p) => (this.usage = { ...this.usage, [p.usage.agentId ?? "claude"]: p.usage }));
     this.client.on("settings.changed", (p) => (this.settings = p.settings));
     this.client.on("daemon.status", (p) => (this.daemonStatus = p));
     this.client.on("link.changed", (p) => {
@@ -225,7 +229,11 @@ export class AppState {
       // Older daemons do not know usage.get; that is fine.
       this.client
         .request("usage.get", {})
-        .then((r) => (this.usage = r.usage ?? null))
+        .then((r) => {
+          // Older daemons send one snapshot; newer ones one per agent.
+          const list = r.accounts?.length ? r.accounts : r.usage ? [r.usage] : [];
+          this.usage = Object.fromEntries(list.map((u) => [u.agentId ?? "claude", u]));
+        })
         .catch(() => {});
       const want = projects.some((p) => p.id === this.currentProjectId)
         ? this.currentProjectId
@@ -417,6 +425,15 @@ export class AppState {
   async markRead(id: Id) {
     const { card } = await this.call("card.markRead", { id }, true);
     this.applyCard(card);
+  }
+
+  /** Asks which agent CLIs are signed in. Older daemons do not know the method. */
+  loadAccounts(refresh = false) {
+    if (!this.client.ready) return;
+    this.client
+      .request("agent.accounts", { refresh })
+      .then((r) => (this.accounts = r.accounts))
+      .catch(() => {});
   }
 
   // ---- stats: sampled by the daemon only while someone subscribes ----

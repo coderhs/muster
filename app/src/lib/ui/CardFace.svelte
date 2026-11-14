@@ -72,6 +72,7 @@
   {/if}
   <div class="meta">
     <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} source={caps(agent).statusSource} />
+    {#if card.model}<span class="chip model" title="Model: {card.model}">{card.model}</span>{/if}
     {#if card.context && caps(agent).context}<ContextMeter context={card.context} />{/if}
     {#if card.priority}
       <span class="prio p-{card.priority}" title="{PRIORITY_LABEL[card.priority]} priority">
@@ -185,6 +186,10 @@
     gap: 6px;
     flex-wrap: wrap;
     min-width: 0;
+  }
+  .chip.model {
+    max-width: 110px;
+    white-space: nowrap;
   }
   .chip {
     display: inline-flex;

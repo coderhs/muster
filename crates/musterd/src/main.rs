@@ -1,5 +1,6 @@
 //! musterd: owns Muster's state and serves the WebSocket API.
 
+mod accounts;
 mod agents;
 mod context;
 mod launchd;
@@ -7,6 +8,7 @@ mod scrollback;
 mod server;
 mod state;
 mod stats;
+mod usage;
 
 use std::io::Write;
 use std::os::fd::AsRawFd;
@@ -201,7 +203,10 @@ fn run() -> Result<(), String> {
             TcpListener::bind(("127.0.0.1", port)).await.map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let (agents, hook_events) = agents::Agents::new(&home);
-        agents.load_usage(store.meta_get("usage").ok().flatten());
+        agents.load_usage(
+            store.meta_get(usage::META_KEY).ok().flatten(),
+            store.meta_get(usage::LEGACY_META_KEY).ok().flatten(),
+        );
         let (state, output_rx) = state::State::new(home.clone(), token, store, backend, agents);
         state.backend.reload_config().await;
         state.backend.stop_control_clients().await;

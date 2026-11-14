@@ -123,7 +123,7 @@ pub struct Agents {
     receiver: Option<HookReceiver>,
     hooks: Option<HookConfig>,
     cards: Mutex<HashMap<String, CardAgent>>,
-    usage: Mutex<Option<UsageInfo>>,
+    usage: Mutex<crate::usage::Accounts>,
     chat: Mutex<HashMap<String, ChatSub>>,
     activity: Mutex<HashMap<String, Activity>>,
     gen: std::sync::atomic::AtomicU64,
@@ -193,7 +193,7 @@ impl Agents {
             receiver: None,
             hooks: None,
             cards: Mutex::new(HashMap::new()),
-            usage: Mutex::new(None),
+            usage: Mutex::new(Default::default()),
             chat: Mutex::new(HashMap::new()),
             activity: Mutex::new(HashMap::new()),
             gen: std::sync::atomic::AtomicU64::new(1),
@@ -321,12 +321,14 @@ impl Agents {
         }
     }
 
-    pub fn load_usage(&self, json: Option<String>) {
-        *self.usage.lock().unwrap() = json.and_then(|j| serde_json::from_str(&j).ok());
+    pub fn load_usage(&self, saved: Option<String>, legacy: Option<String>) {
+        *self.usage.lock().unwrap() = crate::usage::Accounts::load(saved.as_deref(), legacy.as_deref());
     }
 
-    pub fn usage(&self) -> Option<UsageInfo> {
-        self.usage.lock().unwrap().clone()
+    /// `(primary, all)`: the snapshot older clients read, and one entry per agent.
+    pub fn usage(&self) -> (Option<UsageInfo>, Vec<UsageInfo>) {
+        let u = self.usage.lock().unwrap();
+        (u.primary(), u.all())
     }
 
     /// Builds the launch (or resume, when the card has an `agentSessionId`) command for
@@ -742,6 +744,7 @@ impl Agents {
         let mut auto_title: Option<(String, &str)> = None;
         let mut usage_changed = None;
         let mut session_changed = false;
+        let mut model = card.model.clone();
 
         let changes = ca.tracker.apply(&ev);
         for c in &changes {
@@ -751,7 +754,10 @@ impl Agents {
             }
         }
         match &ev.kind {
-            AgentEvent::SessionStarted { .. } => {
+            AgentEvent::SessionStarted { model: m, .. } => {
+                if let Some(l) = muster_agents::model_label(m.as_deref(), None) {
+                    model = Some(l);
+                }
                 ca.session_started = true;
                 reason = None;
                 pending = None;
@@ -833,6 +839,9 @@ impl Agents {
             }
             AgentEvent::TurnFinished { .. } | AgentEvent::SessionEnded { .. } => pending = None,
             AgentEvent::Usage { usage } => {
+                if let Some(l) = muster_agents::model_label(usage.model_id.as_deref(), usage.model_name.as_deref()) {
+                    model = Some(l);
+                }
                 if let Some(name) = usage.session_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
                     if card.title_auto && card.title != name {
                         auto_title = Some((name.chars().take(80).collect(), title_source::AGENT));
@@ -869,13 +878,9 @@ impl Agents {
                         agent_id: Some(card.agent_id.clone()),
                         updated_at: now_ms(),
                     };
-                    let mut cur = self.usage.lock().unwrap();
-                    let differs = cur.as_ref().is_none_or(|c| {
-                        c.five_hour != info.five_hour || c.seven_day != info.seven_day || c.windows != info.windows
-                    });
-                    *cur = Some(info.clone());
-                    if differs {
-                        usage_changed = Some(info);
+                    let mut accounts = self.usage.lock().unwrap();
+                    if let Some(merged) = accounts.observe(&card.agent_id, info, now_ms()) {
+                        usage_changed = accounts.to_json().map(|j| (merged, j));
                     }
                 }
             }
@@ -899,8 +904,12 @@ impl Agents {
             }
         }
 
+        if model != card.model {
+            let _ = st.store.lock().unwrap().set_model(&card.id, model.as_deref());
+        }
         // Status-line refreshes arrive often; skip the write when nothing moved.
         let unchanged = changes.is_empty()
+            && model == card.model
             && !session_changed
             && reason == before.1.needs_you_reason
             && pending == before.1.pending_approval
@@ -911,10 +920,8 @@ impl Agents {
         drop(cards);
         self.sync_quiet(st, &card.id, before.0.status, after_status);
 
-        if let Some(info) = usage_changed {
-            if let Ok(j) = serde_json::to_string(&info) {
-                let _ = st.store.lock().unwrap().meta_set("usage", &j);
-            }
+        if let Some((info, j)) = usage_changed {
+            let _ = st.store.lock().unwrap().meta_set(crate::usage::META_KEY, &j);
             st.clients.broadcast(&Event::UsageChanged(UsageChanged { usage: info }));
         }
         if let Some(c) = saved {
@@ -928,6 +935,7 @@ impl Agents {
                     c.needs_you_reason.clone(),
                     c.pending_approval.clone(),
                     c.context.clone(),
+                    c.model.clone(),
                 )
             };
             // lastActivityAt alone changes on every event; it is sent with the next
@@ -1053,11 +1061,13 @@ impl Agents {
     async fn set_coarse(&self, st: &Arc<State>, card: &Card, to: CardStatus) {
         let mut to = to;
         let mut context = None;
+        let mut model = None;
         if card.agent_id == "opencode" {
             if let Some(s) = self.opencode_session(card).await {
                 if to == CardStatus::Idle && s.busy {
                     to = CardStatus::Running;
                 }
+                model = muster_agents::model_label(s.model.as_deref(), None).filter(|m| card.model.as_ref() != Some(m));
                 context = s.context.map(|c| ContextInfo {
                     used_tokens: c.used_tokens,
                     window_tokens: c.window_tokens,
@@ -1065,7 +1075,7 @@ impl Agents {
                 });
             }
         }
-        if card.status == to && (context.is_none() || context == card.context) {
+        if card.status == to && (context.is_none() || context == card.context) && model.is_none() {
             return;
         }
         if card.status == CardStatus::Draft || card.status == CardStatus::Exited || card.setup.is_some() {
@@ -1076,6 +1086,9 @@ impl Agents {
             let r = store.set_status(&card.id, to);
             if let Some(c) = &context {
                 let _ = store.set_context(&card.id, Some(c));
+            }
+            if let Some(m) = &model {
+                let _ = store.set_model(&card.id, Some(m));
             }
             let _ = store.touch_activity(&card.id, now_ms());
             r.and_then(|_| store.get_card(&card.id))

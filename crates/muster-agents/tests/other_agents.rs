@@ -18,7 +18,15 @@ fn codex_unauthenticated_rollout_gives_turn_events() {
     let path = fixture("codex/rollout-unauthenticated.jsonl");
     let (evs, next) = c.log_events("c1", &path, 0).unwrap();
     assert_eq!(next, std::fs::metadata(&path).unwrap().len());
-    assert_eq!(kinds(&evs), ["sessionStarted", "turnStarted", "other", "turnFinished"]);
+    let k = kinds(&evs);
+    assert_eq!(
+        k.iter().filter(|k| *k != "usage").collect::<Vec<_>>(),
+        ["sessionStarted", "turnStarted", "other", "turnFinished"]
+    );
+    // `turn_context` names the model of the turn.
+    assert!(evs
+        .iter()
+        .any(|e| matches!(&e.kind, AgentEvent::Usage { usage } if usage.model_id.as_deref() == Some("gpt-5.5"))));
     assert_eq!(evs[0].session_id.as_deref(), Some("01a1d62d-87bc-7362-9c96-9e709c4ef64f"));
     let mut t = StatusTracker::new(0);
     let statuses: Vec<AgentStatus> = evs
@@ -210,6 +218,7 @@ fn opencode_session_and_messages() {
     assert_eq!(s.id, "ses_muster_test_0001");
     assert!(!s.busy);
     assert_eq!(s.outcome.as_deref(), Some("failed"));
+    assert_eq!(s.model.as_deref(), Some("big-pickle"));
     let m = muster_agents::opencode::parse_messages(
         &std::fs::read_to_string(fixture("opencode/messages-failed.json")).unwrap(),
     );

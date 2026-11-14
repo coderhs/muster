@@ -77,8 +77,19 @@ did anything. The menu-bar icon shows the number of cards that need you.
 
 Also shown:
 
-- **Usage limits**: for Claude Code, how much of the 5-hour and weekly allowance is
-  **used**, and when each resets.
+- **Agents and limits**: one line per agent tool you have installed, saying whether it
+  is signed in and how (Claude account, ChatGPT, Google account...), the model its own
+  settings start with, and the models your live cards are running. For Claude Code the
+  panel shows **Current session** (the 5-hour window) and **Current week (all models)**,
+  how much of each is **used**, and when each resets, the same windows Claude Code's
+  `/usage` shows. Codex shows its 5-hour and weekly limits. The numbers come from your
+  cards' own sessions, so they update when one of them talks to the model; "as of" says
+  how old they are. A window whose reset time has passed shows 0% until the next
+  message. Per-model weekly limits (for example Opus only) are not shown: Claude Code
+  only gets those from Anthropic's usage service, which Muster does not call. Collapse
+  the panel to keep just the fullest window of each agent in its header.
+- **Model**: each card and tracker row shows the model its agent last reported, e.g.
+  "Opus 5.5" or "gpt-5.5". Gemini and Antigravity do not report one.
 - **Memory and CPU**: per session and in total. Sampling runs only while something is
   displaying it.
 

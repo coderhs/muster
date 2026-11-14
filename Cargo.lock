@@ -310,6 +310,7 @@ dependencies = [
  "muster-agents",
  "muster-core",
  "muster-proto",
+ "rusqlite",
  "serde",
  "serde_json",
  "tokio",

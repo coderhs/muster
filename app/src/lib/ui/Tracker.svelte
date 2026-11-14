@@ -9,7 +9,7 @@
   import { colorOr } from "./colors";
   import ApprovalBar from "./ApprovalBar.svelte";
   import ContextMeter from "./ContextMeter.svelte";
-  import UsageStrip from "./UsageStrip.svelte";
+  import AgentUsage from "./AgentUsage.svelte";
   import StatsChip from "./StatsChip.svelte";
   import { bytes, cpu } from "./format";
   import { reasonLabel } from "../agent/agent";
@@ -77,7 +77,7 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="tracker" bind:this={listEl}>
-  <UsageStrip />
+  <AgentUsage />
   <div class="summary">
     <div class="stat needs" class:zero={!count("needs_you")}><b>{count("needs_you")}</b> need you</div>
     <div class="stat fin" class:zero={!count("finished")}><b>{count("finished")}</b> finished</div>
@@ -152,6 +152,7 @@
         {#if p}<span class="proj"><span class="pdot" style="--c:{colorOr(p.color, '#0a84ff')}"></span>{p.name}</span>{/if}
         {#if c.branch}<span class="branch"><Icon name="branch" size={11} />{c.branch}</span>{/if}
         {#if c.status === "needs_you" && c.needsYouReason}<span class="why">{reasonLabel(c.needsYouReason, c.setup?.exitCode)}</span>{/if}
+        {#if c.model}<span class="model" title="Model">{c.model}</span>{/if}
         {#if c.context}<ContextMeter context={c.context} />{/if}
         {#if c.hasSession && app.stats.get(c.id)}<StatsChip s={app.stats.get(c.id)!} />{/if}
         {#if c.restorable}<span class="why">restorable</span>{/if}
@@ -362,6 +363,14 @@
   }
   .why {
     color: var(--s-needs);
+  }
+  .model {
+    font-size: 10.5px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-2);
+    white-space: nowrap;
   }
   .appr {
     order: 3;

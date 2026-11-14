@@ -18,7 +18,7 @@ pub const AGENTS: &[AgentInfo] = &[
     AgentInfo { id: "codex", label: "Codex", color: "#10a37f", command: Some("codex") },
     AgentInfo { id: "cursor", label: "Cursor", color: "#7c7c7c", command: Some("cursor-agent") },
     AgentInfo { id: "opencode", label: "opencode", color: "#f5a623", command: Some("opencode") },
-    AgentInfo { id: "antigravity", label: "Antigravity", color: "#4285f4", command: Some("antigravity") },
+    AgentInfo { id: "antigravity", label: "Antigravity", color: "#4285f4", command: Some("agy") },
     AgentInfo { id: "gemini", label: "Gemini", color: "#8e75b2", command: Some("gemini") },
     AgentInfo { id: "copilot", label: "GitHub Copilot", color: "#6e40c9", command: Some("copilot") },
     AgentInfo { id: "grok", label: "Grok", color: "#222222", command: Some("grok") },
