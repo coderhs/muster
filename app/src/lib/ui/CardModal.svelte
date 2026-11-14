@@ -130,6 +130,8 @@
         onError: (m) => (termError = m),
         onSize: (cols, rows) => (size = { cols, rows }),
         clipboardFiles: app.platform.clipboardFiles,
+        // Claude Code binds Ctrl+Enter to "send now".
+        extendedCtrlEnter: card.agentId === "claude",
         openUrl: (url) => void app.platform.openUrl(url).catch((e) => app.toast(`Could not open the link: ${e instanceof Error ? e.message : e}`)),
       });
       term.focus();
