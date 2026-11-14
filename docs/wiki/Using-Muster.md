@@ -75,10 +75,29 @@ The tracker groups all cards across the board into Needs you, Finished, Running 
 Idle, each with a timer: how long it has waited for you, or how long since it last
 did anything. The menu-bar icon shows the number of cards that need you.
 
+On a MacBook with a camera notch, Muster also draws a small black strip right of the
+notch: the number of cards that are working (orange), that need you (red), and the
+last three that finished (green tick). The strip is hidden when there is nothing to
+show and on displays without a notch. Point at it and it grows into a list of those
+cards by name; click a name to open that card. A finished card stays in the strip,
+even after you have read it in the window, until you click it there or it starts
+working again. Switch it off in Settings → Notifications.
+
 Also shown:
 
-- **Usage limits**: for Claude Code, how much of the 5-hour and weekly allowance is
-  **used**, and when each resets.
+- **Agents and limits**: one line per agent tool you have installed, saying whether it
+  is signed in and how (Claude account, ChatGPT, Google account...), the model its own
+  settings start with, and the models your live cards are running. For Claude Code the
+  panel shows **Current session** (the 5-hour window) and **Current week (all models)**,
+  how much of each is **used**, and when each resets, the same windows Claude Code's
+  `/usage` shows. Codex shows its 5-hour and weekly limits. The numbers come from your
+  cards' own sessions, so they update when one of them talks to the model; "as of" says
+  how old they are. A window whose reset time has passed shows 0% until the next
+  message. Per-model weekly limits (for example Opus only) are not shown: Claude Code
+  only gets those from Anthropic's usage service, which Muster does not call. Collapse
+  the panel to keep just the fullest window of each agent in its header.
+- **Model**: each card and tracker row shows the model its agent last reported, e.g.
+  "Opus 5.5" or "gpt-5.5". Gemini and Antigravity do not report one.
 - **Memory and CPU**: per session and in total. Sampling runs only while something is
   displaying it.
 

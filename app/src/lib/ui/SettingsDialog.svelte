@@ -9,6 +9,7 @@
   const s = $derived(app.settings);
   let notify = $state<boolean | null>(null);
   let notifyStatus = $state<string | null>(null);
+  let island = $state<{ enabled: boolean; available: boolean } | null>(null);
   let term = $state(getTermPrefs());
   function setTerm(p: Partial<typeof term>) {
     term = { ...term, ...p };
@@ -21,6 +22,7 @@
   onMount(() => {
     app.platform.getNotify?.().then((v) => (notify = v)).catch(() => {});
     app.platform.notifyStatus?.().then((v) => (notifyStatus = v)).catch(() => {});
+    app.platform.getIsland?.().then((v) => (island = v)).catch(() => {});
   });
 
   async function setSilence(n: number) {
@@ -39,6 +41,11 @@
     } catch {
       /* toast shown */
     }
+  }
+
+  async function setIsland(v: boolean) {
+    if (island) island = { ...island, enabled: v };
+    await app.platform.setIsland?.(v).catch((e) => app.toast(`Could not save: ${e}`));
   }
 
   async function setNotify(v: boolean) {
@@ -112,6 +119,18 @@
         {/if}
       {:else}
         <p class="muted">Notifications come from the desktop app.</p>
+      {/if}
+      {#if app.platform.setIsland && island}
+        <label class="opt">
+          <input type="checkbox" checked={island.enabled} onchange={(e) => setIsland((e.currentTarget as HTMLInputElement).checked)} />
+          <span>
+            <b>Show working and finished cards around the notch</b>
+            <small>Right of the camera notch: cards that are working (orange), cards that need you (red) and the last three cards that finished (green tick). Point at the strip to see the cards by name. Clicking a name opens that card; a finished card stays until you click it there or it starts working again.</small>
+          </span>
+        </label>
+        {#if !island.available}
+          <small>No connected display has a notch, so there is nothing to show right now.</small>
+        {/if}
       {/if}
     </section>
 

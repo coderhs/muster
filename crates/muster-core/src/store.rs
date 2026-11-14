@@ -116,6 +116,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE cards ADD COLUMN notes_edited_by TEXT;
     ALTER TABLE cards ADD COLUMN notes_edited_at INTEGER;
     "#,
+    // v7: the model the card's agent last reported
+    r#"
+    ALTER TABLE cards ADD COLUMN model TEXT;
+    "#,
 ];
 
 /// Comments kept per card; the oldest are dropped beyond this.
@@ -198,7 +202,7 @@ const CARD_INSERT_COLS: &str = "id, project_id, column_id, rank, title, agent_id
 const CARD_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes, \
      priority, due_at, agent_session_id, status, status_since, turn_started_at, last_activity_at, \
      unread, created_at, updated_at, needs_you_reason, pending_approval, context, title_source, setup, restorable, \
-     (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at";
+     (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at, model";
 
 const COMMENT_COLS: &str =
     "id, card_id, author_kind, author_card_id, author_agent_id, author_card_title, text, created_at";
@@ -254,6 +258,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         comment_count: r.get::<_, i64>(26)?.max(0) as u32,
         notes_edited_by: r.get::<_, Option<String>>(27)?.and_then(|s| serde_json::from_str(&s).ok()),
         notes_edited_at: r.get(28)?,
+        model: r.get(29)?,
     })
 }
 
@@ -703,6 +708,7 @@ impl Store {
             comment_count: 0,
             notes_edited_by: None,
             notes_edited_at: None,
+            model: None,
         };
         self.conn
             .execute(
@@ -1228,6 +1234,11 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_model(&mut self, id: &str, model: Option<&str>) -> Result<()> {
+        self.conn.execute("UPDATE cards SET model = ?2 WHERE id = ?1", params![id, model]).map_err(sql_err)?;
+        Ok(())
+    }
+
     pub fn set_agent_session_id(&mut self, id: &str, sid: Option<&str>) -> Result<()> {
         self.conn.execute("UPDATE cards SET agent_session_id = ?2 WHERE id = ?1", params![id, sid]).map_err(sql_err)?;
         Ok(())
@@ -1376,6 +1387,15 @@ mod tests {
         assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&a.id), None).unwrap_err().code, ErrorCode::Invalid);
         assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&b.id), None).unwrap_err().code, ErrorCode::Invalid);
         assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&c.id), Some(&c.id)).unwrap_err().code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn card_model_is_stored() {
+        let (mut s, p, cols) = store_with_project();
+        let a = card(&mut s, &p, &cols[0], "a");
+        assert_eq!(a.model, None);
+        s.set_model(&a.id, Some("Opus 5.5")).unwrap();
+        assert_eq!(s.get_card(&a.id).unwrap().model.as_deref(), Some("Opus 5.5"));
     }
 
     #[test]

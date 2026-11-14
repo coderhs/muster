@@ -12,11 +12,18 @@ export interface Platform {
   pickFolder?: () => Promise<string | null>;
   /** Requests from the host to open a card (e.g. a click in the menu-bar item). */
   onOpenCard?: (cb: (cardId: string) => void) => void;
+  /** Open a web link in the user's browser. */
+  openUrl(url: string): Promise<void>;
+  /** Paths of files on the clipboard (copied in the Finder), when the host can tell. */
+  clipboardFiles?: () => Promise<string[]>;
   /** Start the daemon on request (the desktop shell can; a browser cannot). */
   startDaemon?: () => Promise<string>;
   /** Desktop notifications for needs-you / done (posted by the shell, even with the window closed). */
   getNotify?: () => Promise<boolean>;
   setNotify?: (on: boolean) => Promise<void>;
+  /** The strip around the display's notch that shows working and waiting cards. */
+  getIsland?: () => Promise<{ enabled: boolean; available: boolean }>;
+  setIsland?: (on: boolean) => Promise<void>;
   /** "unavailable" | "unknown" | "requesting" | "granted" | "denied" */
   notifyStatus?: () => Promise<string>;
 }

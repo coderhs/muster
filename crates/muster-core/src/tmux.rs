@@ -133,6 +133,18 @@ pub fn login_shell() -> String {
 
 const FALLBACK_LOCALE: &str = "en_US.UTF-8";
 
+/// Variables an agent CLI sets for the programs it starts. When the daemon is itself
+/// started from inside such a session (a terminal in Claude Code, say), they must not
+/// reach the cards: Claude Code that finds them takes itself for a child of that
+/// session and keeps no transcript or prompt history of its own.
+pub fn is_agent_session_var(name: &str) -> bool {
+    name == "CLAUDECODE"
+        || name == "CLAUDE_PID"
+        || name == "CLAUDE_EFFORT"
+        || name == "AI_AGENT"
+        || name.starts_with("CLAUDE_CODE_")
+}
+
 /// Whether the daemon's own environment names a UTF-8 locale.
 fn has_utf8_locale() -> bool {
     ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).is_some_and(
@@ -231,6 +243,12 @@ impl TmuxBackend {
         // locale, and tmux would then replace every non-ASCII character with `_`.
         c.arg("-u").arg("-L").arg(&self.socket).arg("-f").arg(&self.config);
         c.env_remove("TMUX").env_remove("TMUX_PANE");
+        // A tmux server started by this command hands its environment to every card.
+        for (name, _) in std::env::vars_os() {
+            if name.to_str().is_some_and(is_agent_session_var) {
+                c.env_remove(&name);
+            }
+        }
         if !has_utf8_locale() {
             c.env("LANG", FALLBACK_LOCALE);
         }
@@ -258,6 +276,12 @@ impl TmuxBackend {
     /// Reloads the generated config into a server that is already running.
     pub async fn reload_config(&self) {
         let _ = self.run([std::ffi::OsStr::new("source-file"), self.config.as_os_str()]).await;
+        // A server started by an earlier daemon may still carry an agent session's
+        // variables; new cards would inherit them.
+        let Ok(env) = self.run(["show-environment", "-g"]).await else { return };
+        for name in env.lines().filter_map(|l| l.split('=').next()).filter(|n| is_agent_session_var(n)) {
+            let _ = self.run(["set-environment", "-g", "-u", name]).await;
+        }
     }
 
     /// Last output time (unix ms) per card session, from tmux's `window_activity`.
@@ -611,5 +635,21 @@ impl ControlWatch {
             .await
             .ok()?;
         String::from_utf8_lossy(&out.stdout).trim().strip_prefix(SESSION_PREFIX).map(str::to_string)
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::is_agent_session_var;
+
+    #[test]
+    fn agent_session_variables_are_recognised() {
+        for v in ["CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "AI_AGENT"] {
+            assert!(is_agent_session_var(v), "{v}");
+        }
+        // The user's own configuration must still reach the cards.
+        for v in ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "PATH", "MUSTER_CARD_ID"] {
+            assert!(!is_agent_session_var(v), "{v}");
+        }
     }
 }

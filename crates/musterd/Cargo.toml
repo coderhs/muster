@@ -12,6 +12,7 @@ muster-agents = { path = "../muster-agents" }
 serde.workspace = true
 serde_json.workspace = true
 libc.workspace = true
+rusqlite.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "sync", "macros", "process", "signal", "time", "io-util"] }
 tokio-tungstenite.workspace = true
 futures-util.workspace = true

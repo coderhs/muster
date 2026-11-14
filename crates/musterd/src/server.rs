@@ -1,7 +1,7 @@
 //! WebSocket server and request dispatch.
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -572,7 +572,10 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             to_value(Empty {})
         }
 
-        Method::UsageGet(_) => to_value(UsageResult { usage: st.agents.usage() }),
+        Method::UsageGet(_) => {
+            let (usage, accounts) = st.agents.usage();
+            to_value(UsageResult { usage, accounts })
+        }
 
         Method::CardGet(p) => {
             let card = st.store.lock().unwrap().get_card(&p.id)?;
@@ -653,11 +656,20 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
 
         Method::AgentList(_) => {
             let installed = st.installed_agents.get_or_init(|| find_installed(st.backend.shell().to_string())).await;
-            let mut list = agents::list(|cmd| installed.contains(cmd));
+            let mut list = agents::list(|cmd| installed.contains_key(cmd));
             for a in &mut list {
                 a.capabilities = Some(st.agents.capabilities(&a.id));
             }
             to_value(AgentListResult { agents: list })
+        }
+        Method::AgentAccounts(p) => {
+            if let Some(accounts) = st.accounts.get(p.refresh) {
+                return to_value(AgentAccountsResult { accounts });
+            }
+            let installed = st.installed_agents.get_or_init(|| find_installed(st.backend.shell().to_string())).await;
+            let accounts = crate::accounts::check(installed).await;
+            st.accounts.put(accounts.clone());
+            to_value(AgentAccountsResult { accounts })
         }
     }
 }
@@ -983,7 +995,8 @@ async fn refresh_activity(st: &Arc<State>) {
 }
 
 /// Resolves which agent commands are on the login shell's PATH (run once).
-async fn find_installed(shell: String) -> HashSet<String> {
+/// Agent command name → its full path on the login shell's PATH.
+async fn find_installed(shell: String) -> HashMap<String, PathBuf> {
     let run = tokio::process::Command::new(&shell)
         .args(["-l", "-i", "-c", "echo \"MUSTER-PATH:$PATH\""])
         .stdin(std::process::Stdio::null())
@@ -1006,13 +1019,14 @@ async fn find_installed(shell: String) -> HashSet<String> {
     agents::AGENTS
         .iter()
         .filter_map(|a| a.command)
-        .filter(|cmd| {
-            dirs.iter().any(|d| {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::metadata(Path::new(d).join(cmd))
-                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            })
+        .filter_map(|cmd| {
+            dirs.iter()
+                .map(|d| Path::new(d).join(cmd))
+                .find(|p| {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                })
+                .map(|p| (cmd.to_string(), p))
         })
-        .map(str::to_string)
         .collect()
 }

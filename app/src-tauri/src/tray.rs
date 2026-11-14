@@ -2,7 +2,7 @@
 //! totals fetched when the pointer reaches the icon (just before the menu opens).
 
 use crate::watcher::{CardLite, Endpoint, Hooks, State, Watcher};
-use crate::{daemon, notify};
+use crate::{daemon, island, notify};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,6 +15,39 @@ use tauri::{AppHandle, Manager, Runtime};
 #[derive(Clone)]
 pub struct NotifyFlag(pub Arc<AtomicBool>);
 
+/// Whether to show the strip around the notch; shared with the get/set commands.
+#[derive(Clone)]
+pub struct IslandFlag(pub Arc<AtomicBool>);
+
+/// The cards the strip last showed.
+#[derive(Default)]
+pub struct IslandRows(Mutex<Vec<island::Row>>);
+
+/// Redraws the strip from the last known cards (after the setting changed).
+pub fn refresh_island<R: Runtime>(app: &AppHandle<R>) {
+    let rows = app.state::<IslandRows>().0.lock().unwrap().clone();
+    let on = app.state::<IslandFlag>().0.load(Ordering::Relaxed);
+    let _ = app.run_on_main_thread(move || island::update(rows, on));
+}
+
+/// Which finished cards the strip keeps showing.
+#[derive(Default)]
+pub struct IslandFinished(Mutex<island::Finished>);
+
+/// A card was clicked in the strip: a finished one stops showing.
+pub fn island_dismiss<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    app.state::<IslandFinished>().0.lock().unwrap().dismiss(id);
+    app.state::<IslandRows>().0.lock().unwrap().retain(|r| !(r.id == id && r.kind == island::Kind::Done));
+    refresh_island(app);
+}
+
+/// The card a click on the strip itself opens: one that waits or has finished.
+pub fn island_default<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let state = app.state::<IslandRows>();
+    let rows = state.0.lock().unwrap();
+    rows.first().filter(|r| r.kind != island::Kind::Working).map(|r| r.id.clone())
+}
+
 struct TrayHooks<R: Runtime> {
     app: AppHandle<R>,
     tray: Mutex<Option<TrayIcon<R>>>,
@@ -22,6 +55,12 @@ struct TrayHooks<R: Runtime> {
 
 impl<R: Runtime> Hooks for TrayHooks<R> {
     fn changed(&self, st: &State) {
+        let rows = self.app.state::<IslandFinished>().0.lock().unwrap().rows(
+            st.cards.iter().map(|(id, c)| (id.as_str(), c.title.as_str(), c.status.as_str(), c.unread, c.status_since)),
+            st.loaded,
+        );
+        *self.app.state::<IslandRows>().0.lock().unwrap() = rows;
+        refresh_island(&self.app);
         let Some(tray) = self.tray.lock().unwrap().clone() else { return };
         let n = st.cards.values().filter(|c| c.status == "needs_you").count();
         let _ = tray.set_title(if n > 0 { Some(n.to_string()) } else { None::<String> });
@@ -32,6 +71,9 @@ impl<R: Runtime> Hooks for TrayHooks<R> {
     }
 
     fn news(&self, card_id: &str, c: &CardLite, project: &str) {
+        if c.status == "done" {
+            self.app.state::<IslandFinished>().0.lock().unwrap().finished(card_id, c.status_since);
+        }
         if !self.app.state::<NotifyFlag>().0.load(Ordering::Relaxed) {
             return;
         }

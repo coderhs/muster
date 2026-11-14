@@ -180,6 +180,10 @@ function seed() {
   n.pendingApproval = { requestId: "req-1", tool: "Bash", summary: "Bash: rm -rf build/ && cargo build", since: t - 260e3 };
   n.context = { usedTokens: 184_000, windowTokens: 200_000, percent: 92 };
   r.context = { usedTokens: 96_000, windowTokens: 200_000, percent: 48 };
+  // The model each agent last reported.
+  n.model = "Opus 5.5";
+  r.model = "Sonnet 5.5";
+  d.model = "Opus 5.5";
   seedTranscript(r, 130);
   links.add(linkKey(r.id, n.id));
   // A session cut off by a reboot: offers Restore.
@@ -195,7 +199,7 @@ function seed() {
   const [wtodo, wdoing] = projColumns(w.id);
   const q = Object.assign(makeCard({ projectId: w.id, columnId: wdoing.id, title: "Redesign pricing page", agentId: "claude" }), {});
   startSession(q, false);
-  Object.assign(q, { status: "needs_you", statusSince: t - 75e3, unread: true, needsYouReason: "question" });
+  Object.assign(q, { status: "needs_you", statusSince: t - 75e3, unread: true, needsYouReason: "question", model: "Fable 5.2" });
   seedTranscript(q, 4);
   makeCard({ projectId: w.id, columnId: wtodo.id, title: "Audit image sizes", agentId: "codex" });
 }
@@ -204,11 +208,32 @@ function seed() {
 const transcripts = new Map(); // cardId -> ChatMessage[]
 const chatSubs = new Map(); // cardId -> Set<client>
 let msgSeq = 0;
-let usage = {
-  fiveHour: { usedPercent: 62, resetsAt: now() + 2.2 * 3600e3 },
-  sevenDay: { usedPercent: 81, resetsAt: now() + 3.5 * 86400e3 },
-  updatedAt: now(),
+// Account limits per agent, as the daemon merges them from every card.
+const usage = {
+  claude: {
+    fiveHour: { usedPercent: 62, resetsAt: now() + 2.2 * 3600e3 },
+    sevenDay: { usedPercent: 81, resetsAt: now() + 3.5 * 86400e3 },
+    agentId: "claude",
+    updatedAt: now() - 4 * 60e3,
+  },
+  codex: {
+    fiveHour: { usedPercent: 12, resetsAt: now() + 4 * 3600e3 },
+    sevenDay: { usedPercent: 33, resetsAt: now() + 6 * 86400e3 },
+    windows: [
+      { name: "primary", windowMinutes: 300, usedPercent: 12, resetsAt: now() + 4 * 3600e3 },
+      { name: "secondary", windowMinutes: 10080, usedPercent: 33, resetsAt: now() + 6 * 86400e3 },
+    ],
+    agentId: "codex",
+    updatedAt: now() - 50 * 60e3,
+  },
 };
+const ACCOUNTS = [
+  { agentId: "claude", installed: true, signedIn: true, method: "Claude account", defaultModel: "Opus", usageNote: "Session and weekly limits come from Claude Code's status line. Per-model weekly limits are only available from Anthropic's usage endpoint, which Muster does not call." },
+  { agentId: "codex", installed: true, signedIn: true, method: "ChatGPT", defaultModel: "gpt-5.5", usageNote: "Limits appear after a Codex turn in a Muster card reports them." },
+  { agentId: "cursor", installed: false, signedIn: true, method: "Cursor account", defaultModel: "Auto", usageNote: "Cursor reports plan usage only from its server." },
+  { agentId: "opencode", installed: true, signedIn: false, detail: "free models only", usageNote: "opencode has no local usage record." },
+  { agentId: "gemini", installed: false, usageNote: "Gemini reports quota only from Google's server." },
+];
 
 function chatMsg(role, parts, ts = now()) {
   return { id: `msg-${++msgSeq}`, role, timestamp: ts, model: role === "assistant" ? "mock-model" : undefined, parts };
@@ -497,9 +522,10 @@ function runLine(card, line) {
   }
   if (line === "usage") {
     const bump = (w) => ({ ...w, usedPercent: Math.min(100, w.usedPercent + 7) });
-    usage = { fiveHour: bump(usage.fiveHour), sevenDay: bump(usage.sevenDay), updatedAt: now() };
-    broadcast("usage.changed", { usage });
-    termOut(card.id, `usage: ${usage.fiveHour.usedPercent}% / ${usage.sevenDay.usedPercent}%\r\n$ `);
+    const u = usage.claude;
+    usage.claude = { ...u, fiveHour: bump(u.fiveHour), sevenDay: bump(u.sevenDay), updatedAt: now() };
+    broadcast("usage.changed", { usage: usage.claude });
+    termOut(card.id, `usage: ${usage.claude.fiveHour.usedPercent}% / ${usage.claude.sevenDay.usedPercent}%\r\n$ `);
     return;
   }
   if (line && card.titleAuto && card.agentId !== "shell" && !promptedCards.has(card.id)) {
@@ -967,6 +993,7 @@ const handlers = {
     return { cols: sess.cols, rows: sess.rows };
   },
   "agent.list": () => ({ agents: AGENTS }),
+  "agent.accounts": () => ({ accounts: ACCOUNTS.map((a) => ({ ...a, checkedAt: now() })) }),
   "approval.answer": ({ cardId, requestId, decision, remember, message, answers, acceptEdits }) => {
     const card = getCard(cardId);
     need(sessions.has(cardId), "not_found", "card has no live session");
@@ -1016,7 +1043,7 @@ const handlers = {
     client.chats.delete(cardId);
     return {};
   },
-  "usage.get": () => ({ usage }),
+  "usage.get": () => ({ usage: usage.claude, accounts: Object.values(usage) }),
 };
 
 // ---------- server ----------

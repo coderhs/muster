@@ -16,6 +16,8 @@ exposes.
 | Chat view | yes | yes | text only | yes | no | no | – |
 | Context meter | yes | yes | tokens | tokens | no | no | – |
 | Usage limits | yes | from its log | no | no | no | no | – |
+| Model on the card | yes | yes | yes | yes | no | no | – |
+| Signed-in check | yes | yes | yes | yes | yes | no | – |
 
 How well each row has been confirmed against the real tool is recorded in
 [`docs/AGENTS.md`](../AGENTS.md). Claude Code and Cursor were run for real; the others
@@ -33,7 +35,10 @@ are partly built from their documentation.
   same time. Whichever is answered first wins.
 - **Questions and plans.** Can be answered from the card.
 - **Usage limits.** Read from the status-line data Claude provides. If you already
-  have a status line, Muster passes the data on to it.
+  have a status line, Muster passes the data on to it. Each session reports the limits
+  from its own last request, so Muster merges every card's reports per window instead of
+  taking the latest one: a session left idle for hours can no longer roll the numbers
+  back or hide the 5-hour window.
 - **Instructions.** Muster adds a short note and a `muster` skill so the agent knows
   how to read linked cards and message other agents.
 
@@ -46,6 +51,16 @@ are partly built from their documentation.
 - **Gemini, Antigravity**: started and (for Gemini) resumed; status comes from
   terminal activity.
 - **Shell**: a plain terminal card, optionally running a command.
+
+## Sign-in check
+
+The tracker's agents panel says whether each tool is signed in. Muster looks only at
+local state and never reads a token: Claude Code's account entry in `~/.claude.json`,
+`codex login status`, the signed-in user in `~/.cursor/cli-config.json`, Gemini CLI's
+settings and whether its login file exists, and the provider names in opencode's
+database. Antigravity keeps its login somewhere Muster cannot see, so it shows
+"Sign-in unknown". Cursor, Gemini and opencode keep plan usage on their servers only, so
+no limits are shown for them.
 
 ## Adding an agent
 

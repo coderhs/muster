@@ -327,6 +327,18 @@ pub fn log_event(v: &Value) -> Option<AgentEvent> {
             background_tasks: 0,
         },
         ("event_msg", "token_count") => AgentEvent::Usage { usage: usage_from_token_count(p) },
+        // Written at the start of every turn, so a `/model` switch shows up on the next one.
+        ("turn_context", _) => AgentEvent::Usage {
+            usage: UsageSnapshot {
+                context: None,
+                rate_limits: None,
+                model_id: Some(s("model")?),
+                model_name: None,
+                session_name: None,
+                cost_usd: None,
+                agent_version: None,
+            },
+        },
         ("response_item", "function_call" | "custom_tool_call" | "web_search_call" | "tool_search_call") => {
             let name = s("name").unwrap_or_else(|| pt.trim_end_matches("_call").to_string());
             AgentEvent::ToolStarted { summary: call_summary(&name, p), tool: name, tool_use_id: s("call_id") }

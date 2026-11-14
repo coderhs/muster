@@ -129,6 +129,8 @@
       term = openTerminal(termHost, app.client, cardId, {
         onError: (m) => (termError = m),
         onSize: (cols, rows) => (size = { cols, rows }),
+        clipboardFiles: app.platform.clipboardFiles,
+        openUrl: (url) => void app.platform.openUrl(url).catch((e) => app.toast(`Could not open the link: ${e instanceof Error ? e.message : e}`)),
       });
       term.focus();
     });
@@ -503,6 +505,7 @@
 
           <section class="info">
             <div><span>Agent</span>{agent.label}</div>
+            {#if card.model}<div><span>Model</span>{card.model}</div>{/if}
             {#if column}<div><span>Column</span>{column.title}</div>{/if}
             {#if card.branch}<div><span>Branch</span><code>{card.branch}</code></div>{/if}
             <div><span>Folder</span><code title={card.cwd}>{card.cwd}</code></div>

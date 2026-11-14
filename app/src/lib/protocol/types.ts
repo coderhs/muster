@@ -67,6 +67,8 @@ export interface Card {
   /** Who last changed the notes, and when. */
   notesEditedBy?: Author | null;
   notesEditedAt?: number | null;
+  /** Short name of the model the agent last reported ("Opus 5.5", "gpt-5.5"). */
+  model?: string | null;
 }
 
 /** Who wrote a comment or edited notes. Set by the daemon, never by the client. */
@@ -218,6 +220,20 @@ export interface Usage {
   updatedAt: number;
 }
 
+/** Sign-in state and defaults of one agent CLI, from local state only. */
+export interface AgentAccount {
+  agentId: string;
+  installed: boolean;
+  /** Absent when Muster cannot tell. */
+  signedIn?: boolean | null;
+  method?: string | null;
+  detail?: string | null;
+  defaultModel?: string | null;
+  /** Why usage limits are not shown for this agent. */
+  usageNote?: string | null;
+  checkedAt: number;
+}
+
 export interface Agent {
   id: string;
   label: string;
@@ -304,7 +320,8 @@ export interface Methods {
   ];
   "chat.page": [{ cardId: Id; before?: string; limit?: number }, { messages: ChatMessage[]; older?: string | null }];
   "chat.unsubscribe": [{ cardId: Id }, Record<string, never>];
-  "usage.get": [Record<string, never>, { usage?: Usage | null }];
+  "usage.get": [Record<string, never>, { usage?: Usage | null; accounts?: Usage[] }];
+  "agent.accounts": [{ refresh?: boolean }, { accounts: AgentAccount[] }];
   "card.get": [{ id: Id }, { card: Card }];
   "stats.subscribe": [{ intervalMs?: number }, { intervalMs: number }];
   "stats.unsubscribe": [Record<string, never>, Record<string, never>];

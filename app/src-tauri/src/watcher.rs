@@ -18,6 +18,8 @@ pub struct CardLite {
     pub project_id: String,
     pub status: String,
     pub status_since: i64,
+    /// Finished or waiting, and not opened by the user since.
+    pub unread: bool,
 }
 
 #[derive(Default)]
@@ -185,11 +187,15 @@ impl Watcher {
                     Some("card.changed") => {
                         let mut st = self.state.lock().unwrap();
                         let matters = if let Some(id) = p.get("removedId").and_then(Value::as_str) {
-                            st.cards.remove(id).is_some_and(|c| c.status == "needs_you")
+                            // Any removed card may have been counted by the notch strip.
+                            st.cards.remove(id).is_some()
                         } else if let Some((id, c)) = p.get("card").and_then(card_lite) {
                             let before = st.cards.get(&id).cloned();
-                            let matters = c.status == "needs_you"
-                                || before.as_ref().is_some_and(|b| b.status == "needs_you" || b.title != c.title);
+                            // The menu lists cards that need you; the notch strip counts
+                            // working and finished ones, so every status or read change counts.
+                            let matters = before
+                                .as_ref()
+                                .is_none_or(|b| b.status != c.status || b.unread != c.unread || b.title != c.title);
                             let news = st.loaded
                                 && (c.status == "needs_you" || c.status == "done")
                                 && before.as_ref().is_none_or(|b| b.status != c.status);
@@ -252,6 +258,7 @@ fn card_lite(v: &Value) -> Option<(String, CardLite)> {
             project_id: v.get("projectId")?.as_str()?.to_string(),
             status: v.get("status")?.as_str()?.to_string(),
             status_since: v.get("statusSince").and_then(Value::as_i64).unwrap_or(0),
+            unread: v.get("unread").and_then(Value::as_bool).unwrap_or(false),
         },
     ))
 }

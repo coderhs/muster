@@ -1,4 +1,5 @@
 mod daemon;
+mod island;
 mod notify;
 mod tray;
 mod watcher;
@@ -19,6 +20,29 @@ struct DaemonInfo {
 /// Reads `$MUSTER_HOME/daemon.json` and `token` on every call, so a restarted daemon
 /// (new port) is picked up on reconnect. Never starts a daemon: that happens once at
 /// launch, or when the user presses "Start daemon" (`start_daemon`).
+/// Opens a web link in the default browser. Only http and https: terminal output is
+/// untrusted, so no other scheme (and no file path) may reach `open`.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !is_web_url(&url) {
+        return Err("only http and https links can be opened".into());
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(opener).arg(&url).spawn().map(|_| ()).map_err(|e| format!("{opener}: {e}"))
+}
+
+/// Paths of the files on the clipboard (copied in the Finder), so a paste into a
+/// terminal can insert where they are instead of nothing.
+#[tauri::command]
+fn clipboard_files() -> Vec<String> {
+    island::clipboard_files()
+}
+
+fn is_web_url(url: &str) -> bool {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
+    rest.is_some_and(|r| !r.is_empty() && !r.starts_with('-')) && !url.chars().any(|c| c.is_control() || c == ' ')
+}
+
 #[tauri::command]
 fn daemon_info() -> Result<DaemonInfo, String> {
     let home = daemon::muster_home()?;
@@ -66,6 +90,48 @@ fn set_notify<R: Runtime>(app: AppHandle<R>, flag: tauri::State<tray::NotifyFlag
     std::fs::write(&path, serde_json::json!({ "enabled": on }).to_string()).map_err(|e| e.to_string())
 }
 
+fn island_file<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("island.json"))
+}
+
+fn read_enabled(path: Option<std::path::PathBuf>) -> bool {
+    path.and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["enabled"].as_bool())
+        .unwrap_or(true)
+}
+
+/// Whether the strip around the notch is switched on, and whether a display has a notch.
+#[derive(serde::Serialize)]
+struct IslandInfo {
+    enabled: bool,
+    available: bool,
+}
+
+#[tauri::command]
+async fn get_island<R: Runtime>(app: AppHandle<R>) -> Result<IslandInfo, String> {
+    let enabled = app.state::<tray::IslandFlag>().0.load(std::sync::atomic::Ordering::Relaxed);
+    // Screens may only be asked about on the main thread.
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(island::available());
+    })
+    .map_err(|e| e.to_string())?;
+    let available = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or(false);
+    Ok(IslandInfo { enabled, available })
+}
+
+#[tauri::command]
+fn set_island<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(), String> {
+    app.state::<tray::IslandFlag>().0.store(on, std::sync::atomic::Ordering::Relaxed);
+    tray::refresh_island(&app);
+    let path = island_file(&app).ok_or("no config directory")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::json!({ "enabled": on }).to_string()).map_err(|e| e.to_string())
+}
+
 /// A card the tray asked to open before the window's page was ready.
 #[derive(Default)]
 struct PendingOpen(Mutex<Option<String>>);
@@ -77,6 +143,9 @@ fn take_pending_open(pending: tauri::State<PendingOpen>) -> Option<String> {
 
 /// Shows the main window, recreating it (and its webview) if it was closed.
 fn show_main<R: Runtime>(app: &AppHandle<R>) -> bool {
+    // A click on the notch strip or a notification arrives while another app is in
+    // front; focusing the window alone would leave Muster behind it.
+    island::activate_app();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -179,19 +248,37 @@ pub fn run() {
         .manage(PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
             daemon_info,
+            open_url,
+            clipboard_files,
             start_daemon,
             take_pending_open,
             get_notify,
             set_notify,
-            notify_status
+            notify_status,
+            get_island,
+            set_island
         ])
         .setup(|app| {
-            let enabled = notify_file(app.handle())
-                .and_then(|p| std::fs::read_to_string(p).ok())
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                .and_then(|v| v["enabled"].as_bool())
-                .unwrap_or(true);
+            let enabled = read_enabled(notify_file(app.handle()));
             app.manage(tray::NotifyFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled))));
+            let island_on = read_enabled(island_file(app.handle()));
+            app.manage(tray::IslandFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(island_on))));
+            app.manage(tray::IslandRows::default());
+            app.manage(tray::IslandFinished::default());
+            let handle = app.handle().clone();
+            island::init(move |card| {
+                let h = handle.clone();
+                let _ = handle.run_on_main_thread(move || {
+                    // A name in the list, or the strip itself: a waiting or finished card.
+                    match card.or_else(|| tray::island_default(&h)) {
+                        Some(id) => {
+                            tray::island_dismiss(&h, &id);
+                            on_tray_menu(&h, &format!("card:{id}"));
+                        }
+                        None => on_tray_menu(&h, "show"),
+                    }
+                });
+            });
             let handle = app.handle().clone();
             notify::init(move |card| {
                 let h = handle.clone();
@@ -215,4 +302,27 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_web_url;
+
+    #[test]
+    fn only_web_links_open() {
+        assert!(is_web_url("https://example.com/a?b=1#c"));
+        assert!(is_web_url("http://localhost:3000"));
+        for bad in [
+            "file:///etc/passwd",
+            "/Applications/Calculator.app",
+            "-a Calculator",
+            "https://",
+            "http://-x",
+            "https://a b",
+            "ssh://h",
+            "",
+        ] {
+            assert!(!is_web_url(bad), "{bad}");
+        }
+    }
 }

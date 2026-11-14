@@ -203,7 +203,16 @@ Investigated in order of invasiveness:
    `spend_limit` window exists for gateway setups `[docs]`. Refreshes happen after each
    assistant message, on permission mode changes and at `resets_at` `[docs]`; the feed
    goes quiet while the session is idle, and only sessions with a response report limits.
-   Limits are account-wide, so the newest snapshot from any card is current.
+   Limits are account-wide, but each process reports the `anthropic-ratelimit-unified-5h-*`
+   / `-7d-*` headers of its own latest response (checked in the 2.1.325 bundle), and
+   leaves a window out once that copy's `resets_at` has passed. So the newest snapshot is
+   not the current one: an idle session's refresh repeats old numbers. The daemon merges
+   reports per window (`crates/musterd/src/usage.rs`): larger `used_percentage` within the
+   same `resets_at`, later `resets_at` replaces, missing windows are kept. Claude Code's
+   own `/usage` screen also lists per-model weekly windows (`seven_day_sonnet`,
+   `model_scoped[]`, e.g. "Current week (Fable)"); those come only from
+   `GET api.anthropic.com/api/oauth/usage` with the user's OAuth token, not from response
+   headers, so Muster does not have them.
    - The `--settings` status line replaces the user's own for that session (one value
      wins `[docs]`). To keep the user's status line, the adapter reads (read-only) the
      effective `statusLine` from `<cwd>/.claude/settings.local.json`,
@@ -316,7 +325,8 @@ API with 401. The first run used the real home and left one rollout file in
   `last_token_usage{input_tokens, cached_input_tokens, output_tokens, ...}` and
   `model_context_window` (258400). `rate_limits` has `primary` / `secondary`
   `{used_percent, window_minutes, resets_at}` plus `plan_type`. The user's file showed a
-  43200-minute (30-day) primary window. Context used = last input + output tokens
+  43200-minute (30-day) primary window. Each turn starts with a `turn_context` line whose
+  `model` (e.g. `gpt-5.5`) is shown on the card. Context used = last input + output tokens
   (cached tokens are part of input).
 - **Instructions `[run]`**: `-c developer_instructions="..."` appears as a developer
   message in `codex debug prompt-input` (no model call).
@@ -390,6 +400,9 @@ turn completed. Two runs: `opencode run` once, plus read-only `opencode api` que
   only, not wired.
 
 ## Gemini CLI (0.46.0) and Antigravity (`agy` 1.2.2)
+
+- The Antigravity CLI's command is `agy` (the agent table used to look for
+  `antigravity`, so it showed as not installed).
 
 - Gemini: authentication fails ("IneligibleTierError: This client is no longer supported
   for Gemini Code Assist for individuals"), so no runs. Flags from `--help`:

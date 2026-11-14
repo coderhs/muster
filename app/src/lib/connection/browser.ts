@@ -45,6 +45,9 @@ export function browserPlatform(): Platform {
   const openOnLoad = hash.get("open");
   return {
     kind: "browser",
+    async openUrl(url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
     onOpenCard(cb) {
       if (openOnLoad) cb(openOnLoad);
     },

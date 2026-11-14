@@ -315,6 +315,10 @@ pub struct Card {
     pub notes_edited_by: Option<Author>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes_edited_at: Option<i64>,
+    /// Short name of the model the agent last reported using ("Opus 5.5", "gpt-5.5").
+    /// Absent until the agent reports one; kept after the session ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -536,7 +540,8 @@ pub struct ContextInfo {
     pub percent: Option<f64>,
 }
 
-/// Account rate limits (phase 3). Account-wide: the newest snapshot from any card.
+/// Account rate limits of one agent (phase 3). Account-wide: merged from every card of
+/// that agent, so a session that has been idle for hours cannot roll the numbers back.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageInfo {
@@ -913,6 +918,45 @@ pub struct AgentListResult {
     pub agents: Vec<Agent>,
 }
 
+/// Sign-in state and defaults of one agent CLI, read from local files and the CLI's own
+/// non-interactive status command. Secrets are never read out.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccount {
+    pub agent_id: String,
+    pub installed: bool,
+    /// `None` when Muster cannot tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_in: Option<bool>,
+    /// How it is signed in ("Claude account", "API key", "ChatGPT", "Google account").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// Extra detail, e.g. opencode's signed-in providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Model new sessions start with, from the CLI's own settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    /// Why usage limits are not shown for this agent, when they cannot be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_note: Option<String>,
+    pub checked_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccountsResult {
+    pub accounts: Vec<AgentAccount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccountsParams {
+    /// Check again instead of answering from the cache (kept for a minute).
+    #[serde(default)]
+    pub refresh: bool,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDecision {
@@ -983,9 +1027,13 @@ pub struct ChatPageResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageResult {
-    /// Absent until an agent has reported limits.
+    /// Absent until an agent has reported limits. With several agents reporting, Claude
+    /// Code's; kept for older clients, newer ones read `accounts`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<UsageInfo>,
+    /// One entry per agent that has reported limits.
+    #[serde(default)]
+    pub accounts: Vec<UsageInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1142,6 +1190,7 @@ pub enum Method {
     TermWrite(TermWriteParams),
     TermResize(TermResizeParams),
     AgentList(Empty),
+    AgentAccounts(AgentAccountsParams),
     ApprovalAnswer(ApprovalAnswerParams),
     ChatPage(ChatPageParams),
     ChatUnsubscribe(CardIdParams),
@@ -1216,6 +1265,7 @@ methods! {
     TermWrite => "term.write",
     TermResize => "term.resize",
     AgentList => "agent.list",
+    AgentAccounts => "agent.accounts",
     ApprovalAnswer => "approval.answer",
     ChatPage => "chat.page",
     ChatUnsubscribe => "chat.unsubscribe",
@@ -1502,6 +1552,7 @@ mod tests {
             comment_count: 0,
             notes_edited_by: None,
             notes_edited_at: None,
+            model: None,
         };
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(v["status"], "needs_you");

@@ -38,6 +38,9 @@ pub struct OpencodeSession {
     pub context: Option<ContextUsage>,
     pub cost_usd: Option<f64>,
     pub updated_ms: Option<u64>,
+    /// Model id of the session (`model.id`, e.g. `big-pickle`).
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl Opencode {
@@ -158,6 +161,7 @@ pub fn parse_session(json: &str) -> Option<OpencodeSession> {
         }),
         cost_usd: d.get("cost").and_then(Value::as_f64),
         updated_ms: updated,
+        model: d.pointer("/model/id").and_then(Value::as_str).map(str::to_string),
     })
 }
 

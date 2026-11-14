@@ -137,7 +137,7 @@ working; unknown events must be ignored.
 
 ```
 Project  {..., worktreeSetup?}
-Card     {..., needsYouReason?, pendingApproval?, context?, titleAuto, setup?}
+Card     {..., needsYouReason?, pendingApproval?, context?, titleAuto, setup?, model?}
 PendingApproval {requestId?, tool, summary, since}
 ContextInfo     {usedTokens, windowTokens?, percent?}       percent: 0..100
 SetupInfo       {state: "running"|"failed", exitCode?}
@@ -158,6 +158,10 @@ SetupInfo       {state: "running"|"failed", exitCode?}
   line, e.g. `Bash: touch x.txt`; `since` is unix ms.
 - `agentSessionId` is chosen by Muster at launch and can change while the agent runs (e.g.
   Claude Code's `/clear`); `card.start` on a card that has one resumes that session.
+- `model` is a short name of the model the agent last reported ("Opus 5.5", "gpt-5.5",
+  "big-pickle"): Claude Code's status line and `SessionStart` hook, Codex's per-turn
+  `turn_context`, Cursor's `sessionStart` hook, opencode's session. Absent until reported
+  (always for Gemini and Antigravity, which report nothing); kept after the session ends.
 
 ### Automatic titles
 
@@ -195,7 +199,7 @@ SetupInfo       {state: "running"|"failed", exitCode?}
 | `approval.answer` | `{cardId, requestId?, decision: "allow"\|"deny", remember?: bool, message?}` | `{via: "hook"\|"keys"}` |
 | `chat.page` | `{cardId, before?, limit?}` (`limit` default 50, max 500) | `{messages: ChatMessage[], older?}` |
 | `chat.unsubscribe` | `{cardId}` | `{}` |
-| `usage.get` | `{}` | `{usage?: Usage}` |
+| `usage.get` | `{}` | `{usage?: Usage, accounts: Usage[]}` |
 
 ```
 ChatMessage {id, role: "user"|"assistant"|"tool", timestamp?, model?, parts: ChatPart[]}
@@ -231,9 +235,17 @@ Usage       {fiveHour?: {usedPercent, resetsAt?}, sevenDay?: {usedPercent, reset
   no polling is needed. A message may arrive again with the same `id` when the agent
   extended it: replace the earlier copy. After a session id change the new conversation's
   messages follow.
-- `usage.changed` is sent when the five-hour or seven-day numbers change. Limits are
-  account-wide and only reported while some agent session is active; `usage.get` returns
-  the last known values (kept across daemon restarts) with the time they were observed.
+- `usage.changed` is sent when one agent's numbers change; `usage.agentId` says which.
+  Limits are account-wide and only reported while some agent session is active;
+  `usage.get` returns the last known values (kept across daemon restarts) in `accounts`,
+  one entry per agent, and in `usage` Claude Code's entry (or the newest) for older
+  clients. `updatedAt` is when the agent last reported.
+- Reports from every card of an agent are merged, not replaced: within one window (same
+  `resetsAt`, give or take 30 minutes) the larger `usedPercent` stands, a later `resetsAt`
+  starts a new window, and a report that leaves a window out keeps the known one. This
+  matters for Claude Code, whose status line repeats the limits of that session's own last
+  API response: an idle session would otherwise roll the numbers back. A window whose
+  `resetsAt` has passed means nothing is used in the next one yet; clients show it as 0%.
 
 ### Connection and other rules (settled for phase 3)
 
@@ -362,6 +374,28 @@ Question        {question, header?, options: [{label, description?}], multiSelec
   fallback: without a pending hook request they fail with `unavailable`.
 
 ### Agent capabilities
+
+### Agent accounts
+
+| Method | Params | Result |
+|---|---|---|
+| `agent.accounts` | `{refresh?: bool}` | `{accounts: AgentAccount[]}` |
+
+```
+AgentAccount {agentId, installed, signedIn?, method?, detail?, defaultModel?, usageNote?, checkedAt}
+```
+
+- One entry per agent CLI (not the shell). `signedIn` is absent when Muster cannot tell
+  (Antigravity, Copilot, Grok). `method` is how it is signed in ("Claude account", "API
+  key", "ChatGPT", "Cursor account", "Google account", "opencode account"); `detail` is
+  extra text such as opencode's providers or "free models only"; `defaultModel` is the
+  model the CLI's own settings start with; `usageNote` says where limits come from or why
+  there are none.
+- Read from local state only: Claude Code's `.claude.json` (`oauthAccount`) and
+  `.credentials.json` presence, `codex login status`, cursor-agent's `cli-config.json`
+  (`authInfo`), Gemini CLI's settings and `oauth_creds.json` presence, the provider ids
+  in opencode's database. No credential value is read out and nothing goes over the
+  network. Answers are cached for a minute; `refresh` checks again.
 
 `agent.list` entries gain `capabilities?`:
 
