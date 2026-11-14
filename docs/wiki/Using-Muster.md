@@ -75,10 +75,10 @@ The tracker groups all cards across the board into Needs you, Finished, Running 
 Idle, each with a timer: how long it has waited for you, or how long since it last
 did anything. The menu-bar icon shows the number of cards that need you.
 
-On a MacBook with a camera notch, Muster also draws a small black strip around the
-notch. Left of the notch is the number of cards that are working. Right of it are the
-cards that need you (orange) and the cards that have finished and that you have not
-opened since (green tick); opening a finished card clears it. The strip is hidden when
+On a MacBook with a camera notch, Muster also draws a small black strip right of the
+notch: the number of cards that are working (orange), that need you (red), and that
+have finished and that you have not opened since (green tick). Opening a finished
+card clears it. The strip is hidden when
 there is nothing to show and on displays without a notch. Point at the strip and it
 grows into a list of those cards by name; click a name to open that card. Switch it off in Settings → Notifications.
 

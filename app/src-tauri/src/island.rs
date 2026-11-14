@@ -1,6 +1,6 @@
-//! A small black strip around the display's camera notch. Left of the notch: how many
-//! cards are working. Right of it: how many need the user, and how many have finished
-//! and not been opened since (opening the card clears it). Under the pointer it grows
+//! A small black strip right of the display's camera notch: how many cards are working
+//! (orange), how many need the user (red), and how many have finished and not been
+//! opened since (green; opening the card clears it). Under the pointer it grows
 //! into a list of those cards by name; a click on a name opens that card.
 //!
 //! It is a native panel, not a webview, so it costs almost nothing while idle. It is
@@ -202,9 +202,9 @@ mod imp {
 
     fn color(kind: Kind) -> Retained<NSColor> {
         match kind {
-            Kind::NeedsYou => NSColor::systemOrangeColor(),
+            Kind::NeedsYou => NSColor::systemRedColor(),
             Kind::Done => NSColor::systemGreenColor(),
-            Kind::Working => NSColor::whiteColor(),
+            Kind::Working => NSColor::systemOrangeColor(),
         }
     }
 
@@ -289,7 +289,9 @@ mod imp {
             let (working, needs, done) =
                 (count(&self.rows, Kind::Working), count(&self.rows, Kind::NeedsYou), count(&self.rows, Kind::Done));
             let slots = |k: usize| if k > 0 { SLOT } else { 0.0 };
-            let (left, right) = (slots(working), slots(needs) + slots(done));
+            // Everything sits right of the notch, so one card is seen changing in
+            // place: working, then finished.
+            let (left, right) = (0.0, slots(working) + slots(needs) + slots(done));
 
             // Collapsed: the notch plus only the counts that have something to say.
             let (mut x0, mut x1) = (n.x - left, n.x + n.w + right);
@@ -310,10 +312,9 @@ mod imp {
                 let y = self.list_h + ((n.h - line) / 2.0).floor();
                 l.setFrame(NSRect::new(NSPoint::new(x - x0, y), NSSize::new(SLOT, line)));
             };
-            set(&self.running, working, format!("●{working}"), n.x - SLOT);
-            // Waiting cards sit next to the notch, finished ones outside them.
-            set(&self.needs, needs, format!("●{needs}"), n.x + n.w);
-            set(&self.done, done, format!("✓{done}"), n.x + n.w + slots(needs));
+            set(&self.running, working, format!("●{working}"), n.x + n.w);
+            set(&self.needs, needs, format!("!{needs}"), n.x + n.w + slots(working));
+            set(&self.done, done, format!("✓{done}"), n.x + n.w + slots(working) + slots(needs));
 
             for l in self.names.drain(..) {
                 l.removeFromSuperview();
@@ -329,7 +330,7 @@ mod imp {
                 };
                 for (i, r) in self.rows.iter().take(shown).enumerate() {
                     let mark = match r.kind {
-                        Kind::NeedsYou => "●  Needs you",
+                        Kind::NeedsYou => "!  Needs you",
                         Kind::Done => "✓  Finished",
                         Kind::Working => "●  Working",
                     };
