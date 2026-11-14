@@ -159,13 +159,6 @@ pub(crate) fn on_tray_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
         "show" => {
             show_main(app);
         }
-        // A click on the notch strip: a waiting or finished card, else the window.
-        "island" => match tray::island_default(app) {
-            Some(card) => on_tray_menu(app, &format!("card:{card}")),
-            None => {
-                show_main(app);
-            }
-        },
         "quit" => app.exit(0),
         _ => {
             if let Some(card) = id.strip_prefix("card:") {
@@ -260,11 +253,20 @@ pub fn run() {
             let island_on = read_enabled(island_file(app.handle()));
             app.manage(tray::IslandFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(island_on))));
             app.manage(tray::IslandRows::default());
+            app.manage(tray::IslandFinished::default());
             let handle = app.handle().clone();
             island::init(move |card| {
                 let h = handle.clone();
-                let id = card.map_or("island".to_string(), |c| format!("card:{c}"));
-                let _ = handle.run_on_main_thread(move || on_tray_menu(&h, &id));
+                let _ = handle.run_on_main_thread(move || {
+                    // A name in the list, or the strip itself: a waiting or finished card.
+                    match card.or_else(|| tray::island_default(&h)) {
+                        Some(id) => {
+                            tray::island_dismiss(&h, &id);
+                            on_tray_menu(&h, &format!("card:{id}"));
+                        }
+                        None => on_tray_menu(&h, "show"),
+                    }
+                });
             });
             let handle = app.handle().clone();
             notify::init(move |card| {

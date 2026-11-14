@@ -76,11 +76,12 @@ Idle, each with a timer: how long it has waited for you, or how long since it la
 did anything. The menu-bar icon shows the number of cards that need you.
 
 On a MacBook with a camera notch, Muster also draws a small black strip right of the
-notch: the number of cards that are working (orange), that need you (red), and that
-have finished and that you have not opened since (green tick). Opening a finished
-card clears it. The strip is hidden when
-there is nothing to show and on displays without a notch. Point at the strip and it
-grows into a list of those cards by name; click a name to open that card. Switch it off in Settings → Notifications.
+notch: the number of cards that are working (orange), that need you (red), and the
+last three that finished (green tick). The strip is hidden when there is nothing to
+show and on displays without a notch. Point at it and it grows into a list of those
+cards by name; click a name to open that card. A finished card stays in the strip,
+even after you have read it in the window, until you click it there or it starts
+working again. Switch it off in Settings → Notifications.
 
 Also shown:
 

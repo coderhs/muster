@@ -30,6 +30,17 @@ pub fn refresh_island<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.run_on_main_thread(move || island::update(rows, on));
 }
 
+/// Which finished cards the strip keeps showing.
+#[derive(Default)]
+pub struct IslandFinished(Mutex<island::Finished>);
+
+/// A card was clicked in the strip: a finished one stops showing.
+pub fn island_dismiss<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    app.state::<IslandFinished>().0.lock().unwrap().dismiss(id);
+    app.state::<IslandRows>().0.lock().unwrap().retain(|r| !(r.id == id && r.kind == island::Kind::Done));
+    refresh_island(app);
+}
+
 /// The card a click on the strip itself opens: one that waits or has finished.
 pub fn island_default<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     let state = app.state::<IslandRows>();
@@ -44,8 +55,9 @@ struct TrayHooks<R: Runtime> {
 
 impl<R: Runtime> Hooks for TrayHooks<R> {
     fn changed(&self, st: &State) {
-        let rows = island::rows(
+        let rows = self.app.state::<IslandFinished>().0.lock().unwrap().rows(
             st.cards.iter().map(|(id, c)| (id.as_str(), c.title.as_str(), c.status.as_str(), c.unread, c.status_since)),
+            st.loaded,
         );
         *self.app.state::<IslandRows>().0.lock().unwrap() = rows;
         refresh_island(&self.app);
@@ -59,6 +71,9 @@ impl<R: Runtime> Hooks for TrayHooks<R> {
     }
 
     fn news(&self, card_id: &str, c: &CardLite, project: &str) {
+        if c.status == "done" {
+            self.app.state::<IslandFinished>().0.lock().unwrap().finished(card_id, c.status_since);
+        }
         if !self.app.state::<NotifyFlag>().0.load(Ordering::Relaxed) {
             return;
         }

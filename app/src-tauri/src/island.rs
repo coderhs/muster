@@ -1,6 +1,6 @@
 //! A small black strip right of the display's camera notch: how many cards are working
-//! (orange), how many need the user (red), and how many have finished and not been
-//! opened since (green; opening the card clears it). Under the pointer it grows
+//! (orange), how many need the user (red), and the latest cards that have finished
+//! (green; a finished card stays until it is clicked here or works again). Under the pointer it grows
 //! into a list of those cards by name; a click on a name opens that card.
 //!
 //! It is a native panel, not a webview, so it costs almost nothing while idle. It is
@@ -28,30 +28,80 @@ pub struct Row {
 /// At most this many names in the list; the rest are summed up in a last line.
 pub const MAX_ROWS: usize = 8;
 
-/// What a card with this status and unread flag shows as, if anything.
-pub fn kind_of(status: &str, unread: bool) -> Option<Kind> {
-    match (status, unread) {
-        ("needs_you", _) => Some(Kind::NeedsYou),
-        ("done", true) => Some(Kind::Done),
-        ("running", _) => Some(Kind::Working),
-        _ => None,
-    }
+/// At most this many finished cards, the latest ones.
+pub const MAX_FINISHED: usize = 3;
+
+/// Which finished cards the strip still shows. A card that finishes stays (even when
+/// it has been read in the window) until it is clicked in the strip or works again.
+#[derive(Default)]
+pub struct Finished {
+    /// Cards seen finishing, with the time.
+    latched: Vec<(String, i64)>,
+    /// Clicked away while the daemon still reports them finished and unread.
+    dismissed: std::collections::HashSet<String>,
 }
 
-/// Rows in the order shown: waiting longest first, then finished latest first, then
-/// working. `cards` yields id, title, status, unread and the time of the last status
-/// change.
-pub fn rows<'a>(cards: impl Iterator<Item = (&'a str, &'a str, &'a str, bool, i64)>) -> Vec<Row> {
-    let mut all: Vec<(Kind, i64, Row)> = cards
-        .filter_map(|(id, title, status, unread, since)| {
-            let kind = kind_of(status, unread)?;
-            // Finished cards newest first; the others oldest first.
-            let key = if kind == Kind::Done { -since } else { since };
-            Some((kind, key, Row { id: id.into(), title: title.into(), kind }))
-        })
-        .collect();
-    all.sort_by(|a, b| (a.0, a.1, &a.2.id).cmp(&(b.0, b.1, &b.2.id)));
-    all.into_iter().map(|(_, _, r)| r).collect()
+impl Finished {
+    /// A card just finished.
+    pub fn finished(&mut self, id: &str, at: i64) {
+        self.latched.retain(|(i, _)| i != id);
+        self.latched.push((id.to_string(), at));
+        self.dismissed.remove(id);
+    }
+
+    /// The user clicked the card in the strip.
+    pub fn dismiss(&mut self, id: &str) {
+        self.latched.retain(|(i, _)| i != id);
+        self.dismissed.insert(id.to_string());
+    }
+
+    /// Rows in the order shown: waiting longest first, then the latest finished cards,
+    /// then working. `cards` yields id, title, status, unread and the time of the last
+    /// status change. With `complete` (the card list is whole, not a daemon reconnect
+    /// in progress) it also forgets cards that are gone or busy again.
+    pub fn rows<'a>(
+        &mut self,
+        cards: impl Iterator<Item = (&'a str, &'a str, &'a str, bool, i64)>,
+        complete: bool,
+    ) -> Vec<Row> {
+        let mut all: Vec<(Kind, i64, Row)> = Vec::new();
+        let mut done_now = std::collections::HashSet::new();
+        let mut resting = std::collections::HashSet::new();
+        for (id, title, status, unread, since) in cards {
+            let (kind, key) = match status {
+                "needs_you" => (Kind::NeedsYou, since),
+                "running" => (Kind::Working, since),
+                _ => {
+                    resting.insert(id.to_string());
+                    if status == "done" {
+                        done_now.insert(id.to_string());
+                    }
+                    let latched = self.latched.iter().find(|(i, _)| i == id).map(|(_, at)| *at);
+                    // Finished before this app started: the daemon still has it unread.
+                    let pending = (status == "done" && unread && !self.dismissed.contains(id)).then_some(since);
+                    match latched.or(pending) {
+                        // Newest first.
+                        Some(at) => (Kind::Done, -at),
+                        None => continue,
+                    }
+                }
+            };
+            all.push((kind, key, Row { id: id.into(), title: title.into(), kind }));
+        }
+        if complete {
+            self.latched.retain(|(i, _)| resting.contains(i));
+            self.dismissed.retain(|i| done_now.contains(i));
+        }
+        all.sort_by(|a, b| (a.0, a.1, &a.2.id).cmp(&(b.0, b.1, &b.2.id)));
+        let mut finished = 0;
+        all.retain(|(kind, _, _)| {
+            *kind != Kind::Done || {
+                finished += 1;
+                finished <= MAX_FINISHED
+            }
+        });
+        all.into_iter().map(|(_, _, r)| r).collect()
+    }
 }
 
 fn count(rows: &[Row], kind: Kind) -> usize {
@@ -391,6 +441,12 @@ mod imp {
 mod tests {
     use super::*;
 
+    type Card = (&'static str, &'static str, &'static str, bool, i64);
+
+    fn ids(f: &mut Finished, cards: &[Card]) -> Vec<String> {
+        f.rows(cards.iter().copied(), true).into_iter().map(|r| r.id).collect()
+    }
+
     #[test]
     fn rows_are_waiting_then_finished_then_working() {
         let cards = [
@@ -403,18 +459,40 @@ mod tests {
             ("g", "Done and read", "done", false, 70),
             ("h", "Gone", "exited", false, 80),
         ];
-        let got = rows(cards.into_iter());
-        let ids: Vec<&str> = got.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(ids, ["d", "c", "f", "e", "a"]);
+        let mut f = Finished::default();
+        let got = f.rows(cards.into_iter(), true);
+        let got_ids: Vec<&str> = got.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(got_ids, ["d", "c", "f", "e", "a"]);
         assert_eq!(count(&got, Kind::NeedsYou), 2);
         assert_eq!(count(&got, Kind::Done), 2);
         assert_eq!(count(&got, Kind::Working), 1);
     }
 
     #[test]
-    fn a_finished_card_shows_only_until_opened() {
-        assert_eq!(kind_of("done", true), Some(Kind::Done));
-        assert_eq!(kind_of("done", false), None);
-        assert_eq!(kind_of("idle", true), None);
+    fn a_finished_card_stays_until_clicked_or_busy_again() {
+        let mut f = Finished::default();
+        f.finished("a", 100);
+        // Read in the window (now idle): still shown.
+        assert_eq!(ids(&mut f, &[("a", "A", "idle", false, 101)]), ["a"]);
+        // Working again: shown as working, and no longer remembered as finished.
+        assert_eq!(f.rows([("a", "A", "running", false, 102)].into_iter(), true)[0].kind, Kind::Working);
+        assert!(ids(&mut f, &[("a", "A", "idle", false, 103)]).is_empty());
+        // Finished again, then clicked in the strip.
+        f.finished("a", 104);
+        f.dismiss("a");
+        assert!(ids(&mut f, &[("a", "A", "done", true, 104)]).is_empty());
+    }
+
+    #[test]
+    fn only_the_latest_three_finished_cards_show() {
+        let mut f = Finished::default();
+        for (i, id) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
+            f.finished(id, i as i64);
+        }
+        let cards: Vec<Card> = ["a", "b", "c", "d", "e"].into_iter().map(|id| (id, "T", "idle", false, 0)).collect();
+        assert_eq!(ids(&mut f, &cards), ["e", "d", "c"]);
+        // While the daemon reconnects the list is empty; nothing is forgotten.
+        assert!(f.rows(std::iter::empty(), false).is_empty());
+        assert_eq!(ids(&mut f, &cards), ["e", "d", "c"]);
     }
 }
