@@ -38,6 +38,28 @@ fn clipboard_files() -> Vec<String> {
     island::clipboard_files()
 }
 
+/// What this copy of the app is: its version and the git commit it was built from.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    version: &'static str,
+    /// Short commit, with "+" appended for a build with uncommitted changes.
+    commit: &'static str,
+    commit_date: &'static str,
+    /// A development build (Muster Dev).
+    dev: bool,
+}
+
+#[tauri::command]
+fn app_info() -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        commit: env!("MUSTER_BUILD_COMMIT"),
+        commit_date: env!("MUSTER_BUILD_COMMIT_DATE"),
+        dev: cfg!(debug_assertions),
+    }
+}
+
 fn is_web_url(url: &str) -> bool {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
     rest.is_some_and(|r| !r.is_empty() && !r.starts_with('-')) && !url.chars().any(|c| c.is_control() || c == ' ')
@@ -250,6 +272,7 @@ pub fn run() {
             daemon_info,
             open_url,
             clipboard_files,
+            app_info,
             start_daemon,
             take_pending_open,
             get_notify,

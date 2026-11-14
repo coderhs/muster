@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Platform } from "./index";
+import type { AppInfo, Platform } from "./index";
 
 interface DaemonInfo {
   url: string;
@@ -17,6 +17,7 @@ export function tauriPlatform(): Platform {
     },
     openUrl: (url) => invoke<void>("open_url", { url }),
     clipboardFiles: () => invoke<string[]>("clipboard_files"),
+    appInfo: () => invoke<AppInfo>("app_info"),
     startDaemon: () => invoke<string>("start_daemon"),
     getNotify: () => invoke<boolean>("get_notify"),
     setNotify: (on) => invoke<void>("set_notify", { on }),

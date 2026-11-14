@@ -438,7 +438,10 @@ and other commands `activity` (nothing else).
 
 | Method | Params | Result |
 |---|---|---|
-| `daemon.status` | `{}` | `{version, pid, home, tmuxSocket, hooksAvailable, notices: Notice[]}` |
+| `daemon.status` | `{}` | `{version, commit?, commitDate?, pid, home, tmuxSocket, hooksAvailable, notices: Notice[]}` |
+
+`commit` is the short git commit the daemon was built from, with `+` appended when it was built with uncommitted changes; `commitDate` is that commit's date (ISO 8601).
+
 
 | Event | Payload |
 |---|---|

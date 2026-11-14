@@ -112,7 +112,7 @@ fn main() {
             Ok(())
         }
         Some("--version" | "-V") => {
-            println!("musterd {}", env!("CARGO_PKG_VERSION"));
+            println!("musterd {} ({})", env!("CARGO_PKG_VERSION"), env!("MUSTER_BUILD_COMMIT"));
             Ok(())
         }
         Some("--help" | "-h" | "help") => {

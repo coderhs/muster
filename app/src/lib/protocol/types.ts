@@ -177,6 +177,9 @@ export interface Notice {
 
 export interface DaemonStatus {
   version: string;
+  /** Short git commit the daemon was built from ("+" for uncommitted changes), and its date. */
+  commit?: string;
+  commitDate?: string;
   pid: number;
   home: string;
   tmuxSocket: string;

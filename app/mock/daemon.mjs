@@ -73,7 +73,7 @@ const AGENTS = [
   { id: "shell", label: "Shell", color: "#8e8e93", installed: true, capabilities: cap("activity", []) },
 ];
 const notices = [];
-const daemonStatus = () => ({ version: VERSION, pid: process.pid, home: process.env.MUSTER_HOME ?? "(mock)", tmuxSocket: "mock", hooksAvailable: true, notices });
+const daemonStatus = () => ({ version: VERSION, commit: "mock00000", commitDate: "2026-11-14T12:00:00+05:30", pid: process.pid, home: process.env.MUSTER_HOME ?? "(mock)", tmuxSocket: "mock", hooksAvailable: true, notices });
 
 const DEFAULT_COLUMNS = [
   ["To Do", "#8e8e93", "unstarted"],

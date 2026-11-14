@@ -431,6 +431,12 @@ pub struct Notice {
 #[serde(rename_all = "camelCase")]
 pub struct DaemonStatus {
     pub version: String,
+    /// Short git commit the daemon was built from ("+" appended for a build with
+    /// uncommitted changes), and that commit's date (ISO 8601).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_date: Option<String>,
     pub pid: u32,
     pub home: String,
     pub tmux_socket: String,

@@ -52,3 +52,11 @@ must not be open somewhere else at the same time.
 ## Starting clean in dev
 
 Stop Muster Dev, then move `~/.muster-dev` to the Trash. Stable is not affected.
+
+## Which build am I running?
+
+Settings → About shows the app's version and the git commit it was built from, and the
+same for the daemon. The two are separate programs: after an update the daemon keeps
+running the old build until it is restarted, and About says so when the commits differ.
+To restart it, quit Muster, run `pkill -x musterd`, and open Muster again; sessions keep
+running. `musterd --version` prints the daemon's commit too.
