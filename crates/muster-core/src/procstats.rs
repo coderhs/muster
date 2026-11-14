@@ -36,9 +36,8 @@ fn timebase() -> (u64, u64) {
 /// Memory and CPU time of one process (`None` if it is gone or not ours).
 pub fn usage(pid: i32) -> Option<Usage> {
     let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
-    let r = unsafe {
-        libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, &mut info as *mut _ as *mut libc::rusage_info_t)
-    };
+    let r =
+        unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, &mut info as *mut _ as *mut libc::rusage_info_t) };
     if r != 0 {
         return None;
     }
@@ -64,7 +63,9 @@ pub fn all_pids() -> Vec<i32> {
 fn parent(pid: i32) -> Option<i32> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    let r = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+    let r = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
+    };
     (r == size).then_some(info.pbi_ppid as i32)
 }
 

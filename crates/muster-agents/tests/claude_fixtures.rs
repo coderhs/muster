@@ -7,9 +7,7 @@ use muster_agents::*;
 use serde_json::Value;
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/claude")
-        .join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude").join(name)
 }
 
 fn envelopes(name: &str) -> Vec<HookEnvelope> {
@@ -22,44 +20,22 @@ fn envelopes(name: &str) -> Vec<HookEnvelope> {
 
 fn normalize_all(name: &str) -> Vec<NormalizedEvent> {
     let c = ClaudeCode::default();
-    envelopes(name)
-        .iter()
-        .enumerate()
-        .flat_map(|(i, e)| c.normalize(e, 1_000 + i as u64))
-        .collect()
+    envelopes(name).iter().enumerate().flat_map(|(i, e)| c.normalize(e, 1_000 + i as u64)).collect()
 }
 
 fn kind_name(k: &AgentEvent) -> String {
-    serde_json::to_value(k).unwrap()["type"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    serde_json::to_value(k).unwrap()["type"].as_str().unwrap().to_string()
 }
 
 #[test]
 fn print_mode_sequence() {
     let evs = normalize_all("events-print.jsonl");
     let kinds: Vec<String> = evs.iter().map(|e| kind_name(&e.kind)).collect();
-    assert_eq!(
-        kinds,
-        [
-            "other",
-            "sessionStarted",
-            "turnStarted",
-            "turnFinished",
-            "sessionEnded"
-        ]
-    );
+    assert_eq!(kinds, ["other", "sessionStarted", "turnStarted", "turnFinished", "sessionEnded"]);
     let sid = evs[0].session_id.clone().unwrap();
-    assert!(evs
-        .iter()
-        .all(|e| e.session_id.as_deref() == Some(sid.as_str())));
-    assert!(
-        matches!(&evs[3].kind, AgentEvent::TurnFinished { last_message: Some(m), error: None, .. } if m == "ok")
-    );
-    assert!(
-        matches!(&evs[4].kind, AgentEvent::SessionEnded { reason, exited: true } if reason == "other")
-    );
+    assert!(evs.iter().all(|e| e.session_id.as_deref() == Some(sid.as_str())));
+    assert!(matches!(&evs[3].kind, AgentEvent::TurnFinished { last_message: Some(m), error: None, .. } if m == "ok"));
+    assert!(matches!(&evs[4].kind, AgentEvent::SessionEnded { reason, exited: true } if reason == "other"));
 
     let mut t = StatusTracker::new(0);
     let statuses: Vec<AgentStatus> = evs
@@ -70,20 +46,14 @@ fn print_mode_sequence() {
             _ => None,
         })
         .collect();
-    assert_eq!(
-        statuses,
-        [AgentStatus::Running, AgentStatus::Done, AgentStatus::Exited]
-    );
+    assert_eq!(statuses, [AgentStatus::Running, AgentStatus::Done, AgentStatus::Exited]);
 }
 
 #[test]
 fn interactive_sequence_and_status() {
     let evs = normalize_all("events-interactive.jsonl");
-    let hooks: Vec<String> = evs
-        .iter()
-        .filter(|e| !matches!(e.kind, AgentEvent::Usage { .. }))
-        .map(|e| kind_name(&e.kind))
-        .collect();
+    let hooks: Vec<String> =
+        evs.iter().filter(|e| !matches!(e.kind, AgentEvent::Usage { .. })).map(|e| kind_name(&e.kind)).collect();
     assert_eq!(
         hooks,
         [
@@ -129,10 +99,7 @@ fn interactive_sequence_and_status() {
         .unwrap();
     assert_eq!(perm.tool, "Bash");
     assert_eq!(perm.summary, "Bash: touch muster-perm-test.txt");
-    assert_eq!(
-        perm.id, None,
-        "ids are assigned by the receiver, not the adapter"
-    );
+    assert_eq!(perm.id, None, "ids are assigned by the receiver, not the adapter");
     assert!(perm.suggestions.is_array());
 
     let starts: Vec<(SessionSource, Option<String>)> = evs
@@ -144,11 +111,7 @@ fn interactive_sequence_and_status() {
         .collect();
     assert_eq!(
         starts.iter().map(|s| s.0).collect::<Vec<_>>(),
-        [
-            SessionSource::Startup,
-            SessionSource::Clear,
-            SessionSource::Resume
-        ]
+        [SessionSource::Startup, SessionSource::Clear, SessionSource::Resume]
     );
     assert_ne!(starts[0].1, starts[1].1, "/clear gives a new session id");
     assert_eq!(starts[0].1, starts[2].1, "resume keeps the original id");
@@ -174,17 +137,12 @@ fn interactive_sequence_and_status() {
             let id = format!("r{n}");
             request.id = Some(id.clone());
             let outcome = if n == 1 {
-                PermissionOutcome::Answered {
-                    decision: PermissionDecision::Allow { remember: false },
-                }
+                PermissionOutcome::Answered { decision: PermissionDecision::Allow { remember: false } }
             } else {
                 PermissionOutcome::Elsewhere
             };
             let mut r = e.clone();
-            r.kind = AgentEvent::PermissionResolved {
-                request_id: id,
-                outcome,
-            };
+            r.kind = AgentEvent::PermissionResolved { request_id: id, outcome };
             follow = Some(r);
         }
         log.extend(t.apply(&e));
@@ -210,23 +168,17 @@ fn interactive_sequence_and_status() {
             AgentStatus::Done, // turn 2
             AgentStatus::Running,
             AgentStatus::NeedsYou, // turn 3: Escape in the terminal, no Stop
-            AgentStatus::Idle, // /clear: SessionEnded(clear) keeps the process, SessionStarted(clear) -> idle
-            AgentStatus::Exited, // /exit
+            AgentStatus::Idle,     // /clear: SessionEnded(clear) keeps the process, SessionStarted(clear) -> idle
+            AgentStatus::Exited,   // /exit
             AgentStatus::Idle,
             AgentStatus::Running,
             AgentStatus::Done, // resume + turn
             AgentStatus::Exited,
         ]
     );
-    let sid_changes: Vec<&TrackerChange> = log
-        .iter()
-        .filter(|c| matches!(c, TrackerChange::SessionId { .. }))
-        .collect();
-    assert_eq!(
-        sid_changes.len(),
-        3,
-        "initial, after /clear, back on resume: {sid_changes:?}"
-    );
+    let sid_changes: Vec<&TrackerChange> =
+        log.iter().filter(|c| matches!(c, TrackerChange::SessionId { .. })).collect();
+    assert_eq!(sid_changes.len(), 3, "initial, after /clear, back on resume: {sid_changes:?}");
 }
 
 #[test]
@@ -250,20 +202,8 @@ fn statusline_usage_and_rate_limits() {
     assert_eq!(ctx.window_tokens, Some(1_000_000));
     assert_eq!(ctx.used_percent, Some(4.0));
     let rl = second.rate_limits.as_ref().unwrap();
-    assert_eq!(
-        rl.five_hour,
-        Some(LimitWindow {
-            used_percent: 25.0,
-            resets_at_ms: Some(1_794_591_600_000)
-        })
-    );
-    assert_eq!(
-        rl.seven_day,
-        Some(LimitWindow {
-            used_percent: 12.0,
-            resets_at_ms: Some(1_794_952_800_000)
-        })
-    );
+    assert_eq!(rl.five_hour, Some(LimitWindow { used_percent: 25.0, resets_at_ms: Some(1_794_591_600_000) }));
+    assert_eq!(rl.seven_day, Some(LimitWindow { used_percent: 12.0, resets_at_ms: Some(1_794_952_800_000) }));
     assert_eq!(rl.spend, None);
     assert_eq!(second.agent_version.as_deref(), Some("2.1.323"));
     assert!(second.cost_usd.unwrap() > 0.0);
@@ -287,9 +227,7 @@ fn transcript_newest_page_and_paging() {
                 .map(|p| match p {
                     ChatPart::Text { text } => text.clone(),
                     ChatPart::ToolCall { summary, .. } => format!("call {summary}"),
-                    ChatPart::ToolResult {
-                        is_error, summary, ..
-                    } => format!("result err={is_error} {summary}"),
+                    ChatPart::ToolResult { is_error, summary, .. } => format!("result err={is_error} {summary}"),
                     ChatPart::Interrupted => "interrupted".into(),
                     ChatPart::Thinking => "thinking".into(),
                     ChatPart::Image => "image".into(),
@@ -363,10 +301,7 @@ fn transcript_context_usage_and_turn_state() {
     let path = fixture("transcript-basic.jsonl");
     let u = c.context_usage(&path).unwrap().unwrap();
     assert_eq!(u.used_tokens, 61810);
-    assert_eq!(
-        u.window_tokens, None,
-        "the window size is not in the transcript"
-    );
+    assert_eq!(u.window_tokens, None, "the window size is not in the transcript");
     assert_eq!(u.source, UsageSource::Transcript);
     assert_eq!(c.turn_state(&path).unwrap(), TurnState::Ended);
 
@@ -375,10 +310,7 @@ fn transcript_context_usage_and_turn_state() {
     std::fs::create_dir_all(&dir).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     let lines: Vec<&str> = text.lines().collect();
-    let idx = lines
-        .iter()
-        .position(|l| l.contains("[Request interrupted by user"))
-        .unwrap();
+    let idx = lines.iter().position(|l| l.contains("[Request interrupted by user")).unwrap();
     let cut = dir.join("interrupted.jsonl");
     std::fs::write(&cut, lines[..=idx + 1].join("\n") + "\n").unwrap();
     assert_eq!(c.turn_state(&cut).unwrap(), TurnState::Interrupted);
@@ -386,17 +318,11 @@ fn transcript_context_usage_and_turn_state() {
     t.pending_permissions.insert("x".into());
     assert_eq!(
         t.apply_turn_state(TurnState::Interrupted, 5),
-        [TrackerChange::Status {
-            from: AgentStatus::NeedsYou,
-            to: AgentStatus::Idle
-        }]
+        [TrackerChange::Status { from: AgentStatus::NeedsYou, to: AgentStatus::Idle }]
     );
 
     // A turn in progress: cut right after the first prompt.
-    let p = lines
-        .iter()
-        .position(|l| l.contains("touch muster-perm-test.txt ; then"))
-        .unwrap();
+    let p = lines.iter().position(|l| l.contains("touch muster-perm-test.txt ; then")).unwrap();
     let cut2 = dir.join("inprogress.jsonl");
     std::fs::write(&cut2, lines[..=p].join("\n") + "\n").unwrap();
     assert_eq!(c.turn_state(&cut2).unwrap(), TurnState::InProgress);
@@ -406,20 +332,14 @@ fn transcript_context_usage_and_turn_state() {
 #[test]
 fn transcript_path_lookup() {
     let dir = std::env::temp_dir().join(format!("muster-agents-tp-{}", std::process::id()));
-    let c = ClaudeCode {
-        program: "claude".into(),
-        config_dir: dir.clone(),
-    };
+    let c = ClaudeCode { program: "claude".into(), config_dir: dir.clone() };
     let cwd = Path::new("/work/some.project");
     let pdir = c.project_dir(cwd);
     std::fs::create_dir_all(&pdir).unwrap();
     std::fs::write(pdir.join("abc.jsonl"), "").unwrap();
     assert_eq!(c.transcript_path("abc", cwd), Some(pdir.join("abc.jsonl")));
     // found by scan when the cwd mapping differs
-    assert_eq!(
-        c.transcript_path("abc", Path::new("/elsewhere")),
-        Some(pdir.join("abc.jsonl"))
-    );
+    assert_eq!(c.transcript_path("abc", Path::new("/elsewhere")), Some(pdir.join("abc.jsonl")));
     assert_eq!(c.transcript_path("nope", cwd), None);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -435,19 +355,13 @@ fn hook_settings_shape() {
         assert_eq!(entry["command"], "/opt/m/muster-hook");
         assert_eq!(entry["args"][1], *ev);
     }
-    assert_eq!(
-        s["hooks"]["PermissionRequest"][0]["hooks"][0]["args"][2],
-        "--wait"
-    );
+    assert_eq!(s["hooks"]["PermissionRequest"][0]["hooks"][0]["args"][2], "--wait");
     assert_eq!(s["statusLine"]["padding"], 1);
     assert!(s.get("permissions").is_none(), "never touches permissions");
 }
 
 fn kinds_of(evs: &[NormalizedEvent]) -> Vec<String> {
-    evs.iter()
-        .filter(|e| !matches!(e.kind, AgentEvent::Usage { .. }))
-        .map(|e| kind_name(&e.kind))
-        .collect()
+    evs.iter().filter(|e| !matches!(e.kind, AgentEvent::Usage { .. })).map(|e| kind_name(&e.kind)).collect()
 }
 
 #[test]
@@ -464,13 +378,7 @@ fn question_subagent_and_compaction() {
     assert_eq!(q.len(), 1);
     assert_eq!(q[0].question, "Which color do you prefer?");
     assert_eq!(q[0].header.as_deref(), Some("Color"));
-    assert_eq!(
-        q[0].options
-            .iter()
-            .map(|o| o.label.as_str())
-            .collect::<Vec<_>>(),
-        ["Red", "Blue"]
-    );
+    assert_eq!(q[0].options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(), ["Red", "Blue"]);
     assert!(!q[0].multi_select);
     let req = evs
         .iter()
@@ -485,25 +393,16 @@ fn question_subagent_and_compaction() {
 
     // the answer reply carries the original questions plus answers
     let c = ClaudeCode::default();
-    let reply: Value = serde_json::from_str(
-        &c.permission_reply(
-            &req,
-            &PermissionDecision::Answer {
-                answers: [(
-                    "Which color do you prefer?".to_string(),
-                    vec!["Blue".to_string()],
-                )]
-                .into(),
-            },
-        ),
-    )
+    let reply: Value = serde_json::from_str(&c.permission_reply(
+        &req,
+        &PermissionDecision::Answer {
+            answers: [("Which color do you prefer?".to_string(), vec!["Blue".to_string()])].into(),
+        },
+    ))
     .unwrap();
     let d = &reply["hookSpecificOutput"]["decision"];
     assert_eq!(d["behavior"], "allow");
-    assert_eq!(
-        d["updatedInput"]["answers"]["Which color do you prefer?"],
-        "Blue"
-    );
+    assert_eq!(d["updatedInput"]["answers"]["Which color do you prefer?"], "Blue");
     assert_eq!(d["updatedInput"]["questions"][0]["header"], "Color");
 
     // background subagent: Stop reports it running, its completion starts a new turn
@@ -513,9 +412,7 @@ fn question_subagent_and_compaction() {
     let bg: Vec<u32> = evs
         .iter()
         .filter_map(|e| match &e.kind {
-            AgentEvent::TurnFinished {
-                background_tasks, ..
-            } => Some(*background_tasks),
+            AgentEvent::TurnFinished { background_tasks, .. } => Some(*background_tasks),
             _ => None,
         })
         .collect();
@@ -528,10 +425,7 @@ fn question_subagent_and_compaction() {
         })
         .collect();
     assert_eq!(stopped[0], Some("general-purpose".into()));
-    assert!(
-        stopped[1..].iter().all(Option::is_none),
-        "the rest are internal helper agents"
-    );
+    assert!(stopped[1..].iter().all(Option::is_none), "the rest are internal helper agents");
 
     // /compact: PreCompact, SessionStart(compact) with the same id, PostCompact; no status change
     let cs = k.iter().position(|x| x == "compactionStarted").unwrap();
@@ -545,13 +439,8 @@ fn question_subagent_and_compaction() {
             after_compaction = Some(t.status);
         }
     }
-    assert_eq!(
-        after_compaction,
-        Some(AgentStatus::Done),
-        "compaction after a finished turn leaves it done"
-    );
-    let sids: std::collections::BTreeSet<_> =
-        evs.iter().filter_map(|e| e.session_id.clone()).collect();
+    assert_eq!(after_compaction, Some(AgentStatus::Done), "compaction after a finished turn leaves it done");
+    let sids: std::collections::BTreeSet<_> = evs.iter().filter_map(|e| e.session_id.clone()).collect();
     assert_eq!(sids.len(), 1, "compaction keeps the session id");
 }
 
@@ -561,28 +450,18 @@ fn plan_approval() {
     let plans: Vec<PermissionRequest> = evs
         .iter()
         .filter_map(|e| match &e.kind {
-            AgentEvent::PermissionRequested { request } if request.tool == "ExitPlanMode" => {
-                Some(request.clone())
-            }
+            AgentEvent::PermissionRequested { request } if request.tool == "ExitPlanMode" => Some(request.clone()),
             _ => None,
         })
         .collect();
     assert!(!plans.is_empty());
-    let PromptKind::Plan {
-        plan,
-        plan_file_path,
-    } = &plans[0].prompt
-    else {
-        panic!()
-    };
+    let PromptKind::Plan { plan, plan_file_path } = &plans[0].prompt else { panic!() };
     assert!(plan.as_deref().unwrap().contains("plan-test.txt"));
     assert!(plan_file_path.as_deref().unwrap().ends_with(".md"));
     let c = ClaudeCode::default();
-    let reply: Value = serde_json::from_str(&c.permission_reply(
-        &plans[0],
-        &PermissionDecision::ApprovePlan { accept_edits: true },
-    ))
-    .unwrap();
+    let reply: Value =
+        serde_json::from_str(&c.permission_reply(&plans[0], &PermissionDecision::ApprovePlan { accept_edits: true }))
+            .unwrap();
     let d = &reply["hookSpecificOutput"]["decision"];
     assert_eq!(d["behavior"], "allow");
     assert_eq!(d["updatedInput"]["plan"], plans[0].input["plan"]);
@@ -599,10 +478,5 @@ fn stop_failure() {
 #[test]
 fn conflicting_permission_hooks_fixture_parses() {
     let evs = normalize_all("events-conflicting-hooks.jsonl");
-    assert_eq!(
-        evs.iter()
-            .filter(|e| matches!(e.kind, AgentEvent::PermissionRequested { .. }))
-            .count(),
-        2
-    );
+    assert_eq!(evs.iter().filter(|e| matches!(e.kind, AgentEvent::PermissionRequested { .. })).count(), 2);
 }

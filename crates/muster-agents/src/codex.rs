@@ -34,10 +34,7 @@ impl Default for Codex {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".codex")))
             .unwrap_or_else(|| PathBuf::from(".codex"));
-        Codex {
-            program: "codex".into(),
-            home,
-        }
+        Codex { program: "codex".into(), home }
     }
 }
 
@@ -66,10 +63,7 @@ impl Codex {
             // Added as a developer message; verified with `codex debug prompt-input`.
             let text = std::fs::read_to_string(f)?;
             args.push("-c".into());
-            args.push(format!(
-                "developer_instructions={}",
-                toml_string(text.trim())
-            ));
+            args.push(format!("developer_instructions={}", toml_string(text.trim())));
         }
         args.extend(spec.extra_args.iter().cloned());
         Ok(args)
@@ -83,13 +77,8 @@ impl Codex {
     fn recent_rollouts(&self, days: usize) -> Vec<PathBuf> {
         let mut day_dirs = Vec::new();
         let list = |p: &Path| -> Vec<PathBuf> {
-            let mut v: Vec<PathBuf> = std::fs::read_dir(p)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect();
+            let mut v: Vec<PathBuf> =
+                std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
             v.sort();
             v.reverse();
             v
@@ -124,33 +113,29 @@ pub fn session_id_from_path(p: &Path) -> Option<String> {
     let stem = p.file_stem()?.to_str()?;
     let id = stem.get(stem.len().checked_sub(36)?..)?;
     let b = id.as_bytes();
-    let shaped = b.iter().enumerate().all(|(i, c)| {
-        if [8, 13, 18, 23].contains(&i) {
-            *c == b'-'
-        } else {
-            c.is_ascii_hexdigit()
-        }
-    });
+    let shaped =
+        b.iter().enumerate().all(
+            |(i, c)| {
+                if [8, 13, 18, 23].contains(&i) {
+                    *c == b'-'
+                } else {
+                    c.is_ascii_hexdigit()
+                }
+            },
+        );
     shaped.then(|| id.to_string())
 }
 
 /// Session id of a rollout: from its name, else from its `session_meta` line.
 pub fn rollout_session_id(p: &Path) -> Option<String> {
-    session_id_from_path(p).or_else(|| {
-        first_line(p)?
-            .pointer("/payload/id")?
-            .as_str()
-            .map(str::to_string)
-    })
+    session_id_from_path(p).or_else(|| first_line(p)?.pointer("/payload/id")?.as_str().map(str::to_string))
 }
 
 fn first_line(p: &Path) -> Option<Value> {
     use std::io::{BufRead, Read};
     let f = std::fs::File::open(p).ok()?;
     let mut line = String::new();
-    std::io::BufReader::new(f.take(1 << 20))
-        .read_line(&mut line)
-        .ok()?;
+    std::io::BufReader::new(f.take(1 << 20)).read_line(&mut line).ok()?;
     serde_json::from_str(&line).ok()
 }
 
@@ -232,20 +217,13 @@ impl AgentAdapter for Codex {
             if pl.get("cwd").and_then(Value::as_str) != Some(cwd.as_ref()) {
                 continue;
             }
-            let id = pl
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| session_id_from_path(&p));
+            let id = pl.get("id").and_then(Value::as_str).map(str::to_string).or_else(|| session_id_from_path(&p));
             let Some(id) = id else { continue };
             if best.as_ref().is_none_or(|b| created < b.0) {
                 best = Some((created, p, id));
             }
         }
-        best.map(|(_, p, id)| SessionRef {
-            session_id: id,
-            transcript: Some(p),
-        })
+        best.map(|(_, p, id)| SessionRef { session_id: id, transcript: Some(p) })
     }
 
     fn transcript_root(&self) -> Option<PathBuf> {
@@ -258,28 +236,14 @@ impl AgentAdapter for Codex {
         self.recent_rollouts(7)
             .into_iter()
             .find(|p| p.to_string_lossy().ends_with(&suffix))
-            .or_else(|| {
-                self.recent_rollouts(usize::MAX)
-                    .into_iter()
-                    .find(|p| p.to_string_lossy().ends_with(&suffix))
-            })
+            .or_else(|| self.recent_rollouts(usize::MAX).into_iter().find(|p| p.to_string_lossy().ends_with(&suffix)))
     }
 
-    fn read_chat(
-        &self,
-        transcript: &Path,
-        before: Option<u64>,
-        max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat(&self, transcript: &Path, before: Option<u64>, max_messages: usize) -> io::Result<ChatPage> {
         chat::read_page(transcript, before, max_messages, &parse_chat_line)
     }
 
-    fn read_chat_since(
-        &self,
-        transcript: &Path,
-        after: u64,
-        max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat_since(&self, transcript: &Path, after: u64, max_messages: usize) -> io::Result<ChatPage> {
         chat::read_since(transcript, after, max_messages, &parse_chat_line)
     }
 
@@ -320,12 +284,7 @@ impl AgentAdapter for Codex {
         Ok(TurnState::Unknown)
     }
 
-    fn log_events(
-        &self,
-        card_id: &str,
-        log: &Path,
-        after: u64,
-    ) -> io::Result<(Vec<NormalizedEvent>, u64)> {
+    fn log_events(&self, card_id: &str, log: &Path, after: u64) -> io::Result<(Vec<NormalizedEvent>, u64)> {
         let (lines, next) = lines_after(log, after, chat::SCAN_BUDGET)?;
         let sid = rollout_session_id(log);
         let mut out = Vec::new();
@@ -357,47 +316,25 @@ pub fn log_event(v: &Value) -> Option<AgentEvent> {
     let pt = p.get("type").and_then(Value::as_str).unwrap_or("");
     let s = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string);
     Some(match (t, pt) {
-        ("session_meta", _) => AgentEvent::SessionStarted {
-            source: SessionSource::Startup,
-            model: None,
-        },
+        ("session_meta", _) => AgentEvent::SessionStarted { source: SessionSource::Startup, model: None },
         ("event_msg", "task_started") => AgentEvent::TurnStarted { prompt: None },
-        ("event_msg", "task_complete") => AgentEvent::TurnFinished {
-            last_message: s("last_agent_message"),
-            error: None,
-            background_tasks: 0,
-        },
+        ("event_msg", "task_complete") => {
+            AgentEvent::TurnFinished { last_message: s("last_agent_message"), error: None, background_tasks: 0 }
+        }
         ("event_msg", "turn_aborted") => AgentEvent::TurnFinished {
             last_message: None,
             error: Some(format!("aborted: {}", s("reason").unwrap_or_default())),
             background_tasks: 0,
         },
-        ("event_msg", "token_count") => AgentEvent::Usage {
-            usage: usage_from_token_count(p),
-        },
-        (
-            "response_item",
-            "function_call" | "custom_tool_call" | "web_search_call" | "tool_search_call",
-        ) => {
+        ("event_msg", "token_count") => AgentEvent::Usage { usage: usage_from_token_count(p) },
+        ("response_item", "function_call" | "custom_tool_call" | "web_search_call" | "tool_search_call") => {
             let name = s("name").unwrap_or_else(|| pt.trim_end_matches("_call").to_string());
-            AgentEvent::ToolStarted {
-                summary: call_summary(&name, p),
-                tool: name,
-                tool_use_id: s("call_id"),
-            }
+            AgentEvent::ToolStarted { summary: call_summary(&name, p), tool: name, tool_use_id: s("call_id") }
         }
-        (
-            "response_item",
-            "function_call_output" | "custom_tool_call_output" | "tool_search_output",
-        ) => AgentEvent::ToolFinished {
-            tool: String::new(),
-            tool_use_id: s("call_id"),
-            ok: true,
-            interrupted: false,
-        },
-        ("event_msg", "user_message" | "agent_message") => AgentEvent::Other {
-            event: pt.to_string(),
-        },
+        ("response_item", "function_call_output" | "custom_tool_call_output" | "tool_search_output") => {
+            AgentEvent::ToolFinished { tool: String::new(), tool_use_id: s("call_id"), ok: true, interrupted: false }
+        }
+        ("event_msg", "user_message" | "agent_message") => AgentEvent::Other { event: pt.to_string() },
         _ => return None,
     })
 }
@@ -415,50 +352,29 @@ fn window(name: &str, w: &Value) -> Option<RateWindow> {
 pub fn usage_from_token_count(p: &Value) -> UsageSnapshot {
     let info = &p["info"];
     let last = &info["last_token_usage"];
-    let context = last
-        .get("input_tokens")
-        .and_then(Value::as_u64)
-        .map(|input| {
-            // Codex reports `cached_input_tokens` as part of `input_tokens`.
-            let used = input
-                + last
-                    .get("output_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-            let window = info.get("model_context_window").and_then(Value::as_u64);
-            ContextUsage {
-                used_tokens: used,
-                window_tokens: window,
-                used_percent: window
-                    .filter(|w| *w > 0)
-                    .map(|w| used as f64 * 100.0 / w as f64),
-                source: UsageSource::Transcript,
-            }
-        });
+    let context = last.get("input_tokens").and_then(Value::as_u64).map(|input| {
+        // Codex reports `cached_input_tokens` as part of `input_tokens`.
+        let used = input + last.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+        let window = info.get("model_context_window").and_then(Value::as_u64);
+        ContextUsage {
+            used_tokens: used,
+            window_tokens: window,
+            used_percent: window.filter(|w| *w > 0).map(|w| used as f64 * 100.0 / w as f64),
+            source: UsageSource::Transcript,
+        }
+    });
     let rate_limits = p.get("rate_limits").filter(|r| r.is_object()).map(|r| {
         let windows: Vec<RateWindow> = ["primary", "secondary"]
             .iter()
-            .filter_map(|n| {
-                r.get(*n)
-                    .filter(|w| w.is_object())
-                    .and_then(|w| window(n, w))
-            })
+            .filter_map(|n| r.get(*n).filter(|w| w.is_object()).and_then(|w| window(n, w)))
             .collect();
         let pick = |mins: u64| {
             windows
                 .iter()
                 .find(|w| w.window_minutes == Some(mins))
-                .map(|w| LimitWindow {
-                    used_percent: w.used_percent,
-                    resets_at_ms: w.resets_at_ms,
-                })
+                .map(|w| LimitWindow { used_percent: w.used_percent, resets_at_ms: w.resets_at_ms })
         };
-        RateLimits {
-            five_hour: pick(300),
-            seven_day: pick(10080),
-            spend: None,
-            windows: windows.clone(),
-        }
+        RateLimits { five_hour: pick(300), seven_day: pick(10080), spend: None, windows: windows.clone() }
     });
     UsageSnapshot {
         context,
@@ -472,29 +388,18 @@ pub fn usage_from_token_count(p: &Value) -> UsageSnapshot {
 }
 
 fn call_summary(name: &str, p: &Value) -> String {
-    let args: Value = p
-        .get("arguments")
-        .and_then(Value::as_str)
-        .and_then(|a| serde_json::from_str(a).ok())
-        .unwrap_or(Value::Null);
+    let args: Value =
+        p.get("arguments").and_then(Value::as_str).and_then(|a| serde_json::from_str(a).ok()).unwrap_or(Value::Null);
     let detail = args
         .get("cmd")
         .or_else(|| args.get("command"))
         .map(|c| match c {
-            Value::Array(a) => a
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" "),
+            Value::Array(a) => a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
             Value::String(s) => s.clone(),
             other => other.to_string(),
         })
         .or_else(|| p.get("input").and_then(Value::as_str).map(str::to_string))
-        .or_else(|| {
-            p.pointer("/action/query")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
+        .or_else(|| p.pointer("/action/query").and_then(Value::as_str).map(str::to_string));
     match detail {
         Some(d) if !d.is_empty() => format!("{name}: {}", one_line(&d, 160)),
         _ => name.to_string(),
@@ -521,17 +426,9 @@ fn parse_chat_line(line: &[u8], off: u64) -> Option<Line> {
     }
     let v: Value = serde_json::from_slice(line).ok()?;
     let p = v.get("payload")?;
-    let ts = v
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let ts = v.get("timestamp").and_then(Value::as_str).map(str::to_string);
     let pt = p.get("type")?.as_str()?;
-    let key = |k: &str| {
-        p.get(k)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("o{off}"))
-    };
+    let key = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("o{off}"));
     let mut parts = Vec::new();
     let role = match pt {
         "message" => {
@@ -540,19 +437,12 @@ fn parse_chat_line(line: &[u8], off: u64) -> Option<Line> {
                 Some("assistant") => ChatRole::Assistant,
                 _ => return None, // developer / system context
             };
-            for c in p
-                .get("content")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
+            for c in p.get("content").and_then(Value::as_array).into_iter().flatten() {
                 match c.get("type").and_then(Value::as_str) {
                     Some("input_text" | "output_text") => {
                         let t = c.get("text").and_then(Value::as_str).unwrap_or_default();
                         if !t.trim().is_empty() && !is_context_text(t) {
-                            parts.push(ChatPart::Text {
-                                text: t.to_string(),
-                            });
+                            parts.push(ChatPart::Text { text: t.to_string() });
                         }
                     }
                     Some("input_image") => parts.push(ChatPart::Image),
@@ -571,21 +461,15 @@ fn parse_chat_line(line: &[u8], off: u64) -> Option<Line> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| pt.trim_end_matches("_call").to_string());
-            parts.push(ChatPart::ToolCall {
-                id: key("call_id"),
-                summary: call_summary(&name, p),
-                name,
-            });
+            parts.push(ChatPart::ToolCall { id: key("call_id"), summary: call_summary(&name, p), name });
             ChatRole::Assistant
         }
         "function_call_output" | "custom_tool_call_output" | "tool_search_output" => {
             let out = match p.get("output") {
                 Some(Value::String(s)) => s.clone(),
-                Some(o) => o
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| o.to_string()),
+                Some(o) => {
+                    o.get("content").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| o.to_string())
+                }
                 None => String::new(),
             };
             parts.push(ChatPart::ToolResult {
@@ -602,13 +486,7 @@ fn parse_chat_line(line: &[u8], off: u64) -> Option<Line> {
         ChatRole::Assistant => "assistant-run".to_string(),
         _ => format!("o{off}"),
     };
-    Some(Line {
-        key,
-        role,
-        timestamp: ts,
-        model: None,
-        parts,
-    })
+    Some(Line { key, role, timestamp: ts, model: None, parts })
 }
 
 /// Arguments for an opt-in per-launch hook set (`-c hooks.<Event>=[...]`). Not used by
@@ -629,17 +507,10 @@ pub fn inline_hook_args(hook_bin: &Path, events: &[&str]) -> Vec<String> {
 
 fn toml_inline(v: &Value) -> String {
     match v {
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter().map(toml_inline).collect::<Vec<_>>().join(",")
-        ),
-        Value::Object(o) => format!(
-            "{{{}}}",
-            o.iter()
-                .map(|(k, v)| format!("{k}={}", toml_inline(v)))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+        Value::Array(a) => format!("[{}]", a.iter().map(toml_inline).collect::<Vec<_>>().join(",")),
+        Value::Object(o) => {
+            format!("{{{}}}", o.iter().map(|(k, v)| format!("{k}={}", toml_inline(v))).collect::<Vec<_>>().join(","))
+        }
         Value::String(s) => toml_string(s),
         other => other.to_string(),
     }
@@ -654,18 +525,12 @@ mod tests {
         assert_eq!(toml_string("a\"b\\c\nd"), r#""a\"b\\c\nd""#);
         let a = inline_hook_args(Path::new("/opt/muster-hook"), &["Stop"]);
         assert_eq!(a[0], "-c");
-        assert_eq!(
-            a[1],
-            r#"hooks.Stop=[{hooks=[{command="/opt/muster-hook hook Stop",timeout=10,type="command"}]}]"#
-        );
+        assert_eq!(a[1], r#"hooks.Stop=[{hooks=[{command="/opt/muster-hook hook Stop",timeout=10,type="command"}]}]"#);
     }
 
     #[test]
     fn launch_and_resume() {
-        let c = Codex {
-            program: "codex".into(),
-            home: "/nonexistent".into(),
-        };
+        let c = Codex { program: "codex".into(), home: "/nonexistent".into() };
         let dir = std::env::temp_dir().join(format!("muster-codex-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("i.md");
@@ -674,15 +539,7 @@ mod tests {
         spec.prompt = Some("-x".into());
         spec.instructions = Some(f);
         let l = c.launch(&spec).unwrap();
-        assert_eq!(
-            l.args,
-            [
-                "-c",
-                r#"developer_instructions="Use \"muster\".""#,
-                "--",
-                "-x"
-            ]
-        );
+        assert_eq!(l.args, ["-c", r#"developer_instructions="Use \"muster\".""#, "--", "-x"]);
         let r = c.resume(&spec, "abc").unwrap();
         assert_eq!(r.args[0], "resume");
         assert_eq!(&r.args[3..], ["abc", "-x"]);

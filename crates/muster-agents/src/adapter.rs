@@ -28,11 +28,7 @@ pub struct HookConfig {
 }
 
 impl HookConfig {
-    pub fn new(
-        hook_bin: impl Into<PathBuf>,
-        sock: impl Into<PathBuf>,
-        state_dir: impl Into<PathBuf>,
-    ) -> Self {
+    pub fn new(hook_bin: impl Into<PathBuf>, sock: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Self {
         HookConfig {
             hook_bin: hook_bin.into(),
             sock: sock.into(),
@@ -130,10 +126,7 @@ pub struct SessionRef {
 }
 
 fn unsupported<T>() -> io::Result<T> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "not supported by this agent",
-    ))
+    Err(io::Error::new(io::ErrorKind::Unsupported, "not supported by this agent"))
 }
 
 /// One agent CLI integration. Implementations are cheap, stateless values; all state
@@ -180,12 +173,7 @@ pub trait AgentAdapter: Send + Sync {
     /// Events from the agent's own session log after byte offset `after` (start with 0,
     /// or with the file length to skip history). Returns the events and the next offset.
     /// Used when [`Capabilities::status_source`] includes the log.
-    fn log_events(
-        &self,
-        _card_id: &str,
-        _log: &Path,
-        _after: u64,
-    ) -> io::Result<(Vec<NormalizedEvent>, u64)> {
+    fn log_events(&self, _card_id: &str, _log: &Path, _after: u64) -> io::Result<(Vec<NormalizedEvent>, u64)> {
         Ok((Vec::new(), _after))
     }
 
@@ -198,11 +186,7 @@ pub trait AgentAdapter: Send + Sync {
     }
 
     /// The exact line the hook must print to stdout to apply `decision` to `request`.
-    fn permission_reply(
-        &self,
-        _request: &PermissionRequest,
-        _decision: &PermissionDecision,
-    ) -> String {
+    fn permission_reply(&self, _request: &PermissionRequest, _decision: &PermissionDecision) -> String {
         String::new()
     }
 
@@ -224,8 +208,7 @@ pub trait AgentAdapter: Send + Sync {
     /// arrive in hook payloads, which any local process could forge, so never read one
     /// without this check. The receiver already applies it to every event.
     fn validate_transcript_path(&self, path: &Path) -> Option<PathBuf> {
-        resolve_under(&self.transcript_root()?, path)
-            .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        resolve_under(&self.transcript_root()?, path).filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
     }
 
     /// Where the transcript for `session_id` lives, if it exists. Prefer the
@@ -237,23 +220,13 @@ pub trait AgentAdapter: Send + Sync {
     /// Read a page of chat messages, newest last. `before` is a byte offset from a previous
     /// [`ChatPage::older`]; `None` starts at the end of the file. Reads at most about
     /// `max_messages` messages and never the whole file unless it is small.
-    fn read_chat(
-        &self,
-        _transcript: &Path,
-        _before: Option<u64>,
-        _max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat(&self, _transcript: &Path, _before: Option<u64>, _max_messages: usize) -> io::Result<ChatPage> {
         unsupported()
     }
 
     /// Messages appended after byte offset `after` (from [`ChatPage::end`]), for live
     /// updates of an open chat view.
-    fn read_chat_since(
-        &self,
-        _transcript: &Path,
-        _after: u64,
-        _max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat_since(&self, _transcript: &Path, _after: u64, _max_messages: usize) -> io::Result<ChatPage> {
         unsupported()
     }
 
@@ -276,9 +249,7 @@ pub struct AdapterRegistry {
 
 impl AdapterRegistry {
     pub fn empty() -> Self {
-        AdapterRegistry {
-            adapters: Vec::new(),
-        }
+        AdapterRegistry { adapters: Vec::new() }
     }
 
     pub fn with(mut self, adapter: Arc<dyn AgentAdapter>) -> Self {
@@ -316,33 +287,24 @@ pub fn find_on_path(name: &str) -> Option<PathBuf> {
         return is_executable(&p).then_some(p);
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|d| d.join(name))
-        .find(|p| is_executable(p))
+    std::env::split_paths(&path).map(|d| d.join(name)).find(|p| is_executable(p))
 }
 
 fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p)
-        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
+    std::fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
 }
 
 /// Current time in unix milliseconds.
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// A new per-launch hook secret: 32 random bytes, hex.
 pub fn new_hook_secret() -> String {
     use std::io::Read;
     let mut b = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut b))
-        .expect("read /dev/urandom");
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).expect("read /dev/urandom");
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 

@@ -355,7 +355,12 @@ fn default_silence() -> u64 {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { keep_awake: true, auto_restore: false, silence_seconds: default_silence(), clipboard_passthrough: false }
+        Settings {
+            keep_awake: true,
+            auto_restore: false,
+            silence_seconds: default_silence(),
+            clipboard_passthrough: false,
+        }
     }
 }
 
@@ -536,11 +541,21 @@ pub struct ChatMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ChatPart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// Marks that there was reasoning; its text is never copied out.
     Thinking,
-    ToolCall { id: String, name: String, summary: String },
-    ToolResult { tool_use_id: String, is_error: bool, summary: String },
+    ToolCall {
+        id: String,
+        name: String,
+        summary: String,
+    },
+    ToolResult {
+        tool_use_id: String,
+        is_error: bool,
+        summary: String,
+    },
     Image,
     /// The user interrupted the turn.
     Interrupted,
@@ -1393,8 +1408,7 @@ mod tests {
         assert!(v.get("branch").is_none());
         let s: ServerFrame = serde_json::from_value(json!({"t":"res","id":1,"ok":true,"r":{}})).unwrap();
         assert!(matches!(s, ServerFrame::Response(_)));
-        let s: ServerFrame =
-            serde_json::from_value(json!({"t":"ev","m":"session.exit","p":{"cardId":"c"}})).unwrap();
+        let s: ServerFrame = serde_json::from_value(json!({"t":"ev","m":"session.exit","p":{"cardId":"c"}})).unwrap();
         assert!(matches!(s, ServerFrame::Event(_)));
     }
 }

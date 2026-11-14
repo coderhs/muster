@@ -303,7 +303,8 @@ async fn deliver(st: &Arc<State>, card_id: &str) {
         return;
     }
     let Some(m) = card.queued_messages.first().cloned() else { return };
-    let title = m.from_card_id.as_ref().map(|f| st.store.lock().unwrap().get_card(f).map(|c| c.title).unwrap_or_default());
+    let title =
+        m.from_card_id.as_ref().map(|f| st.store.lock().unwrap().get_card(f).map(|c| c.title).unwrap_or_default());
     let bytes = delivery_bytes(m.from_card_id.as_deref().zip(title.as_deref()), &m.text);
     if st.hub.write(card_id, &bytes).await.is_err() {
         awaiting().lock().unwrap().remove(card_id);

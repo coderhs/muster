@@ -4,7 +4,6 @@
 //! Uses a temporary MUSTER_HOME and a unique `muster-test-*` tmux socket,
 //! and kills only that tmux server.
 
-
 mod common;
 
 use std::path::PathBuf;
@@ -30,7 +29,8 @@ async fn session_survives_daemon_restart() {
         .status()
         .unwrap();
     assert!(!second.success());
-    let token_mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(env.home.join("token")).unwrap().permissions());
+    let token_mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(env.home.join("token")).unwrap().permissions());
     assert_eq!(token_mode & 0o777, 0o600);
 
     // Before hello, anything else is refused (checked on a second socket).
@@ -158,8 +158,10 @@ async fn board_methods_and_events() {
     assert_eq!(p["project"]["color"], "#123456");
 
     let board = c.call("board.get", json!({"projectId": pid})).await.unwrap();
-    let cols: Vec<String> = board["columns"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap().into()).collect();
-    let review = c.call("column.create", json!({"projectId": pid, "title": "Review", "category": "started"})).await.unwrap();
+    let cols: Vec<String> =
+        board["columns"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap().into()).collect();
+    let review =
+        c.call("column.create", json!({"projectId": pid, "title": "Review", "category": "started"})).await.unwrap();
     let review_id = review["column"]["id"].as_str().unwrap().to_string();
     assert_eq!(review["column"]["position"], 3);
     let moved = c.call("column.update", json!({"id": review_id, "position": 1, "title": "Review!"})).await.unwrap();
@@ -190,7 +192,10 @@ async fn board_methods_and_events() {
     c.call("card.markRead", json!({"id": a_id})).await.unwrap();
 
     let wt = c
-        .call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "shell", "worktree": {"branch": "feat/x"}}))
+        .call(
+            "card.create",
+            json!({"projectId": pid, "columnId": cols[0], "agentId": "shell", "worktree": {"branch": "feat/x"}}),
+        )
         .await
         .unwrap();
     assert_eq!(wt["card"]["branch"], "feat/x");
@@ -236,12 +241,18 @@ async fn board_methods_and_events() {
         ErrorCode::NotFound
     );
     assert_eq!(
-        c.call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "custom:x"})).await.unwrap_err().code,
+        c.call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "custom:x"}))
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::Invalid
     );
 
     // A live session blocks project removal; killing it unblocks.
-    let s = c.call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "shell", "start": true})).await.unwrap();
+    let s = c
+        .call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "shell", "start": true}))
+        .await
+        .unwrap();
     let s_id = s["card"]["id"].as_str().unwrap().to_string();
     assert_eq!(c.call("project.remove", json!({"id": pid})).await.unwrap_err().code, ErrorCode::Conflict);
     // Input to a session nobody is attached to goes straight to tmux.
@@ -273,7 +284,6 @@ async fn board_methods_and_events() {
     let _ = ev;
     assert!(c.call("project.list", json!({})).await.unwrap()["projects"].as_array().unwrap().is_empty());
 }
-
 
 #[tokio::test(flavor = "current_thread")]
 async fn origin_check_and_heartbeat() {

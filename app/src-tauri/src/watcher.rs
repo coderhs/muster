@@ -229,7 +229,9 @@ impl Watcher {
                         if let Some(id) = p.get("removedId").and_then(Value::as_str) {
                             st.projects.remove(id);
                             st.cards.retain(|_, c| c.project_id != id);
-                        } else if let (Some(id), Some(name)) = (p["project"]["id"].as_str(), p["project"]["name"].as_str()) {
+                        } else if let (Some(id), Some(name)) =
+                            (p["project"]["id"].as_str(), p["project"]["name"].as_str())
+                        {
                             st.projects.insert(id.into(), name.into());
                         }
                         self.hooks.changed(&st);
@@ -269,7 +271,10 @@ mod tests {
     }
 
     fn ep() -> Endpoint {
-        Endpoint { url: std::env::var("MUSTER_TEST_WS").expect("MUSTER_TEST_WS"), token: std::env::var("MUSTER_TEST_TOKEN").unwrap_or_else(|_| "dev".into()) }
+        Endpoint {
+            url: std::env::var("MUSTER_TEST_WS").expect("MUSTER_TEST_WS"),
+            token: std::env::var("MUSTER_TEST_TOKEN").unwrap_or_else(|_| "dev".into()),
+        }
     }
 
     #[test]

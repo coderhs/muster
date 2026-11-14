@@ -128,9 +128,8 @@ async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result
         let _ = sink.close().await;
     });
     let mut ctx = Ctx { conn_id: state.next_conn_id(), state, conn: Conn { tx, kill: kill.clone() }, role: Role::None };
-    let period = Duration::from_millis(
-        std::env::var("MUSTER_PING_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(30_000),
-    );
+    let period =
+        Duration::from_millis(std::env::var("MUSTER_PING_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(30_000));
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let (mut seen, mut pinged) = (false, false);
@@ -248,7 +247,10 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                 }
             };
             if p.protocol != PROTOCOL_VERSION {
-                return Err(invalid(format!("unsupported protocol {}; this daemon speaks {PROTOCOL_VERSION}", p.protocol)));
+                return Err(invalid(format!(
+                    "unsupported protocol {}; this daemon speaks {PROTOCOL_VERSION}",
+                    p.protocol
+                )));
             }
             if ctx.role == Role::None {
                 // Card connections get replies only, not the board's event stream.
@@ -354,9 +356,8 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
         }
 
         Method::CardCreate(p) => {
-            let agent = agents::find(&p.agent_id).ok_or_else(|| {
-                invalid(format!("unknown or unsupported agent {:?}", p.agent_id))
-            })?;
+            let agent = agents::find(&p.agent_id)
+                .ok_or_else(|| invalid(format!("unknown or unsupported agent {:?}", p.agent_id)))?;
             let project = st.store.lock().unwrap().get_project(&p.project_id)?;
             // Validate the column before doing anything with side effects.
             let col = st.store.lock().unwrap().get_column(&p.column_id)?;
@@ -441,7 +442,8 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
         }
 
         Method::CardMove(p) => {
-            let card = st.store.lock().unwrap().move_card(&p.id, &p.column_id, p.before.as_deref(), p.after.as_deref())?;
+            let card =
+                st.store.lock().unwrap().move_card(&p.id, &p.column_id, p.before.as_deref(), p.after.as_deref())?;
             let card = st.decorate(card);
             st.emit_card(card.clone());
             to_value(CardResult { card })
@@ -507,7 +509,8 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             st.store.lock().unwrap().get_card(&p.card_id)?;
             let conn = ctx.conn.clone();
             let sid = p.card_id.clone();
-            let sink: attach::Sink = Arc::new(move |data: &[u8]| conn.send(Message::binary(encode_term_frame(&sid, data))));
+            let sink: attach::Sink =
+                Arc::new(move |data: &[u8]| conn.send(Message::binary(encode_term_frame(&sid, data))));
             let reply_conn = ctx.conn.clone();
             st.hub
                 .attach(&p.card_id, ctx.conn_id, p.cols, p.rows, p.watch, sink, move |cols, rows| {
@@ -662,9 +665,7 @@ fn restrict(st: &State, me: &str, hash: &str, m: Method) -> Result<Restricted> {
     if st.store.lock().unwrap().card_for_token_hash(hash)?.as_deref() != Some(me) {
         return Err(err(ErrorCode::Unauthorized, "this card's session has ended; its token is no longer valid"));
     }
-    let linked = |other: &str| -> Result<bool> {
-        Ok(other == me || st.store.lock().unwrap().is_linked(me, other)?)
-    };
+    let linked = |other: &str| -> Result<bool> { Ok(other == me || st.store.lock().unwrap().is_linked(me, other)?) };
     let name = m.name();
     let m = match m {
         Method::Hello(p) => Method::Hello(p),
@@ -687,7 +688,12 @@ fn restrict(st: &State, me: &str, hash: &str, m: Method) -> Result<Restricted> {
         Method::CardMove(p) if p.id == me => Method::CardMove(p),
         Method::CardHandoff(p) if p.id == me => Method::CardHandoff(p),
         Method::CardUpdate(p) if p.id == me => {
-            if p.title.is_some() || p.prompt.is_some() || p.priority.is_some() || p.due_at.is_some() || p.title_auto.is_some() {
+            if p.title.is_some()
+                || p.prompt.is_some()
+                || p.priority.is_some()
+                || p.due_at.is_some()
+                || p.title_auto.is_some()
+            {
                 return Err(refuse("changing anything but the card's notes"));
             }
             Method::CardUpdate(p)
@@ -963,14 +969,16 @@ async fn find_installed(shell: String) -> HashSet<String> {
         std::env::var("PATH").unwrap_or_default()
     });
     // fish prints its PATH list space-separated.
-    let dirs: Vec<&str> = if path.contains(':') { path.split(':').collect() } else { path.split_whitespace().collect() };
+    let dirs: Vec<&str> =
+        if path.contains(':') { path.split(':').collect() } else { path.split_whitespace().collect() };
     agents::AGENTS
         .iter()
         .filter_map(|a| a.command)
         .filter(|cmd| {
             dirs.iter().any(|d| {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::metadata(Path::new(d).join(cmd)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                std::fs::metadata(Path::new(d).join(cmd))
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
             })
         })
         .map(str::to_string)

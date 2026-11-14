@@ -236,7 +236,11 @@ impl State {
     pub fn status(&self) -> muster_proto::DaemonStatus {
         let mut notices = Vec::new();
         if let Some(p) = &self.agents.hook_problem {
-            notices.push(muster_proto::Notice { id: "hook_socket".into(), level: "warning".into(), message: p.clone() });
+            notices.push(muster_proto::Notice {
+                id: "hook_socket".into(),
+                level: "warning".into(),
+                message: p.clone(),
+            });
         }
         if !self.backend.available() {
             notices.push(muster_proto::Notice {
@@ -250,7 +254,9 @@ impl State {
             notices.push(muster_proto::Notice {
                 id: "hook_events_dropped".into(),
                 level: "warning".into(),
-                message: format!("{dropped} hook event(s) were rejected because they did not carry their card's secret."),
+                message: format!(
+                    "{dropped} hook event(s) were rejected because they did not carry their card's secret."
+                ),
             });
         }
         notices.extend(self.notices.lock().unwrap().iter().cloned());
@@ -360,7 +366,6 @@ impl State {
             }
         }
     }
-
 
     /// Records a session that was just created, before tmux reports it.
     pub fn mark_live(&self, card_id: &str) {

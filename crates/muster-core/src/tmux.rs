@@ -130,10 +130,12 @@ const FALLBACK_LOCALE: &str = "en_US.UTF-8";
 
 /// Whether the daemon's own environment names a UTF-8 locale.
 fn has_utf8_locale() -> bool {
-    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).is_some_and(|v| {
-        let v = v.to_ascii_lowercase();
-        v.contains("utf-8") || v.contains("utf8")
-    })
+    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).is_some_and(
+        |v| {
+            let v = v.to_ascii_lowercase();
+            v.contains("utf-8") || v.contains("utf8")
+        },
+    )
 }
 
 fn config_text(tmux: &Path, exit_dir: &Path) -> String {
@@ -301,10 +303,25 @@ impl TmuxBackend {
         let activity = if activity { "on" } else { "off" };
         let _ = self
             .run([
-                "set-option", "-w", "-t", &win, "monitor-silence", &silence, ";",
-                "set-option", "-w", "-t", &win, "monitor-activity", activity, ";",
+                "set-option",
+                "-w",
+                "-t",
+                &win,
+                "monitor-silence",
+                &silence,
+                ";",
+                "set-option",
+                "-w",
+                "-t",
+                &win,
+                "monitor-activity",
+                activity,
+                ";",
                 // Clear earlier alerts so the next one fires.
-                "kill-session", "-C", "-t", &sess,
+                "kill-session",
+                "-C",
+                "-t",
+                &sess,
             ])
             .await;
     }
@@ -444,7 +461,13 @@ impl SessionBackend for TmuxBackend {
 
     async fn window_size(&self, card_id: &str) -> Option<(u16, u16)> {
         let out = self
-            .run(["display-message", "-p", "-t", &format!("={}:", session_name(card_id)), "#{window_width} #{window_height}"])
+            .run([
+                "display-message",
+                "-p",
+                "-t",
+                &format!("={}:", session_name(card_id)),
+                "#{window_width} #{window_height}",
+            ])
             .await
             .ok()?;
         let mut it = out.split_whitespace().map(|s| s.parse::<u16>().ok());
@@ -493,7 +516,13 @@ impl SessionBackend for TmuxBackend {
             .map_err(|e| internal(format!("tmux control client: {e}")))?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().ok_or_else(|| internal("no control stdout"))?;
-        Ok(ControlWatch { tmux: self.tmux.clone(), socket: self.socket.clone(), _child: child, _stdin: stdin, lines: BufReader::new(stdout).lines() })
+        Ok(ControlWatch {
+            tmux: self.tmux.clone(),
+            socket: self.socket.clone(),
+            _child: child,
+            _stdin: stdin,
+            lines: BufReader::new(stdout).lines(),
+        })
     }
 
     async fn unwatch(&self) {
@@ -523,7 +552,9 @@ impl SessionWatch for ControlWatch {
             }
             if let Some(name) = line.strip_prefix("%paste-buffer-changed ") {
                 let name = name.trim();
-                let card = |mark: &str| name.strip_prefix(mark).and_then(|s| s.strip_prefix(SESSION_PREFIX)).map(str::to_string);
+                let card = |mark: &str| {
+                    name.strip_prefix(mark).and_then(|s| s.strip_prefix(SESSION_PREFIX)).map(str::to_string)
+                };
                 if let Some(card_id) = card(SILENCE_MARK) {
                     return Some(WatchEvent::Silence { card_id });
                 }

@@ -21,9 +21,9 @@ use muster_agents::*;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let sock = PathBuf::from(args.first().expect(
-        "usage: hook-receiver <socket> [--policy a,b] [--launch card cwd hook-bin [prompt]]",
-    ));
+    let sock = PathBuf::from(
+        args.first().expect("usage: hook-receiver <socket> [--policy a,b] [--launch card cwd hook-bin [prompt]]"),
+    );
     let mut policy: Vec<String> = Vec::new();
     let mut raw: Option<PathBuf> = None;
     let mut agent = "claude".to_string();
@@ -84,23 +84,15 @@ fn main() -> std::io::Result<()> {
     let mut answered = 0usize;
     for ev in events.iter() {
         println!("{}", serde_json::to_string(&ev).unwrap());
-        let t = trackers
-            .entry(ev.card_id.clone())
-            .or_insert_with(|| StatusTracker::new(ev.at_ms));
+        let t = trackers.entry(ev.card_id.clone()).or_insert_with(|| StatusTracker::new(ev.at_ms));
         for change in t.apply(&ev) {
-            println!(
-                "{}",
-                serde_json::json!({"card": ev.card_id, "change": change})
-            );
+            println!("{}", serde_json::json!({"card": ev.card_id, "change": change}));
         }
         if let AgentEvent::PermissionRequested { request } = &ev.kind {
             let Some(id) = request.id.clone() else {
                 continue;
             };
-            let choice = policy
-                .get(answered)
-                .cloned()
-                .unwrap_or_else(|| "none".into());
+            let choice = policy.get(answered).cloned().unwrap_or_else(|| "none".into());
             answered += 1;
             let decision = match choice.as_str() {
                 "allow" => Some(PermissionDecision::Allow { remember: false }),
@@ -109,13 +101,8 @@ fn main() -> std::io::Result<()> {
                     message: Some("Denied by the Muster test receiver".into()),
                     interrupt: false,
                 }),
-                "deny-interrupt" => Some(PermissionDecision::Deny {
-                    message: None,
-                    interrupt: true,
-                }),
-                "plan" => Some(PermissionDecision::ApprovePlan {
-                    accept_edits: false,
-                }),
+                "deny-interrupt" => Some(PermissionDecision::Deny { message: None, interrupt: true }),
+                "plan" => Some(PermissionDecision::ApprovePlan { accept_edits: false }),
                 "plan-edits" => Some(PermissionDecision::ApprovePlan { accept_edits: true }),
                 c if c.starts_with("answer:") => match &request.prompt {
                     PromptKind::Question { questions } => Some(PermissionDecision::Answer {

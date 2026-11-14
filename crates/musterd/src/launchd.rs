@@ -22,10 +22,8 @@ fn xml_escape(s: &str) -> String {
 pub fn plist() -> String {
     let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "musterd".into());
     let log_dir = home_dir().join("Library/Logs/Muster");
-    let mut env = vec![(
-        "PATH".to_string(),
-        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string(),
-    )];
+    let mut env =
+        vec![("PATH".to_string(), "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string())];
     for key in ["MUSTER_HOME", "MUSTER_TMUX_SOCKET", "MUSTER_PORT", "MUSTER_TMUX"] {
         if let Ok(v) = std::env::var(key) {
             if !v.is_empty() {

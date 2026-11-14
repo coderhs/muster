@@ -23,17 +23,14 @@ async fn project(c: &mut Client, env: &Env) -> (String, String) {
         .as_str()
         .unwrap()
         .to_string();
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
     (pid, col)
 }
 
 async fn start(c: &mut Client, pid: &str, col: &str, agent: &str) -> Value {
-    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true}))
-        .await
-        .unwrap()["card"]
+    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true})).await.unwrap()
+        ["card"]
         .clone()
 }
 
@@ -145,7 +142,10 @@ async fn codex_status_from_its_session_log() {
     let mut c = Client::connect(port, &env.home).await;
     let (pid, col) = project(&mut c, &env).await;
     let card = c
-        .call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "codex", "prompt": "do it", "start": true}))
+        .call(
+            "card.create",
+            json!({"projectId": pid, "columnId": col, "agentId": "codex", "prompt": "do it", "start": true}),
+        )
         .await
         .unwrap()["card"]
         .clone();
@@ -223,7 +223,8 @@ async fn opencode_activity_queries_and_chat() {
     let (pid, col) = project(&mut c, &env).await;
 
     let agents = c.call("agent.list", json!({})).await.unwrap();
-    let caps = |id: &str| agents["agents"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap()["capabilities"].clone();
+    let caps =
+        |id: &str| agents["agents"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap()["capabilities"].clone();
     assert_eq!(caps("claude")["statusSource"], "hooks");
     assert_eq!(caps("claude")["questions"], true);
     assert_eq!(caps("codex")["statusSource"], "log");
@@ -337,7 +338,8 @@ async fn cursor_status_from_its_hooks() {
     let mut env = Env::new();
     env.env.push(("MUSTER_HOOK_BIN".into(), hook_bin().to_string_lossy().into_owned()));
     install(&env, "cursor-agent", FAKE_CURSOR);
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../muster-agents/tests/fixtures/cursor/events-interactive.jsonl");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../muster-agents/tests/fixtures/cursor/events-interactive.jsonl");
     let dir = env.root.join("p");
     std::fs::create_dir_all(&dir).unwrap();
     let events: Vec<(String, String)> = std::fs::read_to_string(&fixture)

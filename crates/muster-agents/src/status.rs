@@ -29,11 +29,7 @@ pub struct StatusTracker {
 
 /// What changed as a result of one event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TrackerChange {
     Status {
         from: AgentStatus,
@@ -64,20 +60,12 @@ impl StatusTracker {
 
     /// Rebuild from persisted card fields.
     pub fn restore(status: AgentStatus, status_since_ms: u64, session_id: Option<String>) -> Self {
-        StatusTracker {
-            status,
-            status_since_ms,
-            session_id,
-            ..StatusTracker::new(status_since_ms)
-        }
+        StatusTracker { status, status_since_ms, session_id, ..StatusTracker::new(status_since_ms) }
     }
 
     fn set(&mut self, to: AgentStatus, now: u64, out: &mut Vec<TrackerChange>) {
         if self.status != to {
-            out.push(TrackerChange::Status {
-                from: self.status,
-                to,
-            });
+            out.push(TrackerChange::Status { from: self.status, to });
             self.status = to;
             self.status_since_ms = now;
         }
@@ -101,10 +89,7 @@ impl StatusTracker {
 
         if let Some(sid) = &ev.session_id {
             if ev.subagent_id.is_none() && self.session_id.as_deref() != Some(sid) {
-                out.push(TrackerChange::SessionId {
-                    old: self.session_id.clone(),
-                    new: sid.clone(),
-                });
+                out.push(TrackerChange::SessionId { old: self.session_id.clone(), new: sid.clone() });
                 self.session_id = Some(sid.clone());
             }
         }
@@ -114,9 +99,7 @@ impl StatusTracker {
         let housekeeping = match &ev.kind {
             AgentEvent::Usage { .. } => true,
             // helper agents that stop after the turn without ever starting visibly
-            AgentEvent::SubagentStopped { agent_id, .. } => {
-                !self.active_subagents.contains(agent_id)
-            }
+            AgentEvent::SubagentStopped { agent_id, .. } => !self.active_subagents.contains(agent_id),
             _ => false,
         };
         if !housekeeping {
@@ -155,9 +138,7 @@ impl StatusTracker {
                     self.waiting_without_id = false;
                 }
                 self.unblock(now, &mut out);
-                if matches!(self.status, AgentStatus::Done | AgentStatus::Idle)
-                    && ev.subagent_id.is_none()
-                {
+                if matches!(self.status, AgentStatus::Done | AgentStatus::Idle) && ev.subagent_id.is_none() {
                     // Work outside a user turn (e.g. a background task woke the agent).
                     self.set(AgentStatus::Running, now, &mut out);
                 }
@@ -178,10 +159,7 @@ impl StatusTracker {
                 }
                 self.set(AgentStatus::NeedsYou, now, &mut out);
             }
-            AgentEvent::PermissionResolved {
-                request_id,
-                outcome,
-            } => {
+            AgentEvent::PermissionResolved { request_id, outcome } => {
                 self.pending_permissions.remove(request_id);
                 match outcome {
                     PermissionOutcome::Answered { .. } => self.unblock(now, &mut out),
@@ -190,9 +168,7 @@ impl StatusTracker {
                     // the terminal prompt is still open. Stay in needs_you until the next
                     // event shows which (a tool event, a new turn, or a turn-state check).
                     PermissionOutcome::Elsewhere => {
-                        if self.pending_permissions.is_empty()
-                            && self.status == AgentStatus::NeedsYou
-                        {
+                        if self.pending_permissions.is_empty() && self.status == AgentStatus::NeedsYou {
                             self.waiting_without_id = true;
                         }
                     }
@@ -202,10 +178,7 @@ impl StatusTracker {
                 self.waiting_without_id = true;
                 self.set(AgentStatus::NeedsYou, now, &mut out);
             }
-            AgentEvent::Notification {
-                needs_attention: true,
-                ..
-            } => {
+            AgentEvent::Notification { needs_attention: true, .. } => {
                 if self.status != AgentStatus::NeedsYou {
                     self.waiting_without_id = true;
                     self.set(AgentStatus::NeedsYou, now, &mut out);
@@ -250,11 +223,7 @@ impl StatusTracker {
         {
             self.pending_permissions.clear();
             self.waiting_without_id = false;
-            let to = if state == TurnState::Interrupted {
-                AgentStatus::Idle
-            } else {
-                AgentStatus::Done
-            };
+            let to = if state == TurnState::Interrupted { AgentStatus::Idle } else { AgentStatus::Done };
             self.set(to, now_ms, &mut out);
         }
         out

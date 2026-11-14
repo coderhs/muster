@@ -58,7 +58,11 @@ impl Env {
         let home = root.join("home");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(root.join("project")).unwrap();
-        Env { root: root.clone(), home, socket: format!("muster-test-{id}"), daemon: None,
+        Env {
+            root: root.clone(),
+            home,
+            socket: format!("muster-test-{id}"),
+            daemon: None,
             log_file: None,
             // Tests that exercise idle detection set their own (short) window.
             env: vec![
@@ -150,7 +154,8 @@ impl Env {
     }
 
     pub fn tmux_sessions(&self) -> String {
-        let out = Command::new("tmux").args(["-L", &self.socket, "list-sessions", "-F", "#{session_name}"]).output().unwrap();
+        let out =
+            Command::new("tmux").args(["-L", &self.socket, "list-sessions", "-F", "#{session_name}"]).output().unwrap();
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 }
@@ -331,7 +336,6 @@ impl Client {
     }
 }
 
-
 impl Client {
     pub async fn wait_event_named(&mut self, name: &str) -> Value {
         loop {
@@ -342,4 +346,3 @@ impl Client {
         }
     }
 }
-

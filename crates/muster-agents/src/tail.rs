@@ -52,13 +52,7 @@ impl ReverseLines {
         }
         // The region ends with the newline of its last line (or at 0); exclude it.
         let region_end = if end > 0 { end - 1 } else { 0 };
-        Ok(ReverseLines {
-            file,
-            pos: region_end,
-            tail: Vec::new(),
-            bytes_read,
-            end,
-        })
+        Ok(ReverseLines { file, pos: region_end, tail: Vec::new(), bytes_read, end })
     }
 
     /// The next line going backwards: `(start_offset, bytes)` without the newline.
@@ -139,17 +133,10 @@ mod tests {
     use std::io::Write;
 
     fn tmpfile(name: &str, content: &[u8]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "muster-agents-tail-{}-{}",
-            std::process::id(),
-            name
-        ));
+        let dir = std::env::temp_dir().join(format!("muster-agents-tail-{}-{}", std::process::id(), name));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("f.jsonl");
-        std::fs::File::create(&p)
-            .unwrap()
-            .write_all(content)
-            .unwrap();
+        std::fs::File::create(&p).unwrap().write_all(content).unwrap();
         p
     }
 
@@ -161,10 +148,7 @@ mod tests {
         let mut r = ReverseLines::open(&p, None).unwrap();
         assert_eq!(r.end, (content.len() - "partial".len()) as u64);
         let (o, l) = r.next_line().unwrap().unwrap();
-        assert_eq!(
-            (o, l.as_slice()),
-            ((2 + big.len() + 1) as u64, b"ccc".as_slice())
-        );
+        assert_eq!((o, l.as_slice()), ((2 + big.len() + 1) as u64, b"ccc".as_slice()));
         let (o, l) = r.next_line().unwrap().unwrap();
         assert_eq!(o, 2);
         assert_eq!(l.len(), big.len());
@@ -182,10 +166,7 @@ mod tests {
     fn lines_after_reads_only_complete_lines() {
         let p = tmpfile("after", b"one\ntwo\nthr");
         let (lines, next) = lines_after(&p, 0, 1 << 20).unwrap();
-        assert_eq!(
-            lines.iter().map(|l| l.1.clone()).collect::<Vec<_>>(),
-            vec![b"one".to_vec(), b"two".to_vec()]
-        );
+        assert_eq!(lines.iter().map(|l| l.1.clone()).collect::<Vec<_>>(), vec![b"one".to_vec(), b"two".to_vec()]);
         assert_eq!(next, 8);
         let (lines, next2) = lines_after(&p, next, 1 << 20).unwrap();
         assert!(lines.is_empty());
@@ -195,11 +176,7 @@ mod tests {
     #[test]
     fn empty_and_newline_only() {
         let p = tmpfile("empty", b"");
-        assert!(ReverseLines::open(&p, None)
-            .unwrap()
-            .next_line()
-            .unwrap()
-            .is_none());
+        assert!(ReverseLines::open(&p, None).unwrap().next_line().unwrap().is_none());
         let p = tmpfile("nl", b"\n\nx\n");
         let mut r = ReverseLines::open(&p, None).unwrap();
         assert_eq!(r.next_line().unwrap().unwrap(), (2, b"x".to_vec()));

@@ -22,9 +22,7 @@ pub struct Opencode {
 
 impl Default for Opencode {
     fn default() -> Self {
-        Opencode {
-            program: "opencode".into(),
-        }
+        Opencode { program: "opencode".into() }
     }
 }
 
@@ -141,18 +139,9 @@ pub fn parse_session(json: &str) -> Option<OpencodeSession> {
     let updated = t.get("updated").and_then(Value::as_u64);
     let idle = t.get("idle").and_then(Value::as_u64);
     let tok = &d["tokens"];
-    let used: u64 = ["input"]
-        .iter()
-        .filter_map(|k| tok.get(*k).and_then(Value::as_u64))
-        .sum::<u64>()
-        + tok
-            .pointer("/cache/read")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-        + tok
-            .pointer("/cache/write")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+    let used: u64 = ["input"].iter().filter_map(|k| tok.get(*k).and_then(Value::as_u64)).sum::<u64>()
+        + tok.pointer("/cache/read").and_then(Value::as_u64).unwrap_or(0)
+        + tok.pointer("/cache/write").and_then(Value::as_u64).unwrap_or(0);
     Some(OpencodeSession {
         id: d.get("id")?.as_str()?.to_string(),
         busy: match (updated, idle) {
@@ -187,40 +176,23 @@ pub fn parse_messages(json: &str) -> Vec<ChatMessage> {
             let role = match m.get("type")?.as_str()? {
                 "user" => {
                     if let Some(t) = m.get("text").and_then(Value::as_str) {
-                        parts.push(ChatPart::Text {
-                            text: t.trim_matches('"').to_string(),
-                        });
+                        parts.push(ChatPart::Text { text: t.trim_matches('"').to_string() });
                     }
                     ChatRole::User
                 }
                 "assistant" => {
-                    for c in m
-                        .get("content")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                    {
+                    for c in m.get("content").and_then(Value::as_array).into_iter().flatten() {
                         match c.get("type").and_then(Value::as_str) {
                             Some("text") => {
                                 if let Some(t) = c.get("text").and_then(Value::as_str) {
-                                    parts.push(ChatPart::Text {
-                                        text: t.to_string(),
-                                    });
+                                    parts.push(ChatPart::Text { text: t.to_string() });
                                 }
                             }
                             Some("reasoning") => parts.push(ChatPart::Thinking),
                             Some("tool") => {
-                                let name = c
-                                    .get("tool")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("tool")
-                                    .to_string();
+                                let name = c.get("tool").and_then(Value::as_str).unwrap_or("tool").to_string();
                                 parts.push(ChatPart::ToolCall {
-                                    id: c
-                                        .get("callID")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or_default()
-                                        .to_string(),
+                                    id: c.get("callID").and_then(Value::as_str).unwrap_or_default().to_string(),
                                     summary: name.clone(),
                                     name,
                                 });
@@ -229,9 +201,7 @@ pub fn parse_messages(json: &str) -> Vec<ChatMessage> {
                         }
                     }
                     if let Some(e) = m.pointer("/error/message").and_then(Value::as_str) {
-                        parts.push(ChatPart::Text {
-                            text: format!("Error: {e}"),
-                        });
+                        parts.push(ChatPart::Text { text: format!("Error: {e}") });
                     }
                     ChatRole::Assistant
                 }
@@ -240,14 +210,8 @@ pub fn parse_messages(json: &str) -> Vec<ChatMessage> {
             (!parts.is_empty()).then(|| ChatMessage {
                 id,
                 role,
-                timestamp: m
-                    .pointer("/time/created")
-                    .and_then(Value::as_u64)
-                    .map(|t| t.to_string()),
-                model: m
-                    .pointer("/model/id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
+                timestamp: m.pointer("/time/created").and_then(Value::as_u64).map(|t| t.to_string()),
+                model: m.pointer("/model/id").and_then(Value::as_str).map(str::to_string),
                 parts,
             })
         })
