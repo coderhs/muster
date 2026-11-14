@@ -15,6 +15,7 @@ export function tauriPlatform(): Platform {
       const info = await invoke<DaemonInfo>("daemon_info");
       return { url: info.url, token: info.token };
     },
+    openUrl: (url) => invoke<void>("open_url", { url }),
     startDaemon: () => invoke<string>("start_daemon"),
     getNotify: () => invoke<boolean>("get_notify"),
     setNotify: (on) => invoke<void>("set_notify", { on }),

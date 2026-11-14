@@ -12,6 +12,8 @@ export interface Platform {
   pickFolder?: () => Promise<string | null>;
   /** Requests from the host to open a card (e.g. a click in the menu-bar item). */
   onOpenCard?: (cb: (cardId: string) => void) => void;
+  /** Open a web link in the user's browser. */
+  openUrl(url: string): Promise<void>;
   /** Start the daemon on request (the desktop shell can; a browser cannot). */
   startDaemon?: () => Promise<string>;
   /** Desktop notifications for needs-you / done (posted by the shell, even with the window closed). */

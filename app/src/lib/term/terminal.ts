@@ -4,11 +4,13 @@
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
 import { isNewlineChord } from "./keys";
+import { isOpenChord, webUrl } from "./links";
 
 const DARK: ITheme = {
   background: "#18181a",
@@ -64,6 +66,8 @@ const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userA
 export interface TermCallbacks {
   onError?: (msg: string) => void;
   onSize?: (cols: number, rows: number) => void;
+  /** Open a web link the user Cmd+clicked. Already checked to be http(s). */
+  openUrl?: (url: string) => void;
 }
 
 export interface TermSession {
@@ -78,6 +82,12 @@ export interface TermSession {
 export function openTerminal(host: HTMLElement, client: MusterClient, cardId: string, cb: TermCallbacks = {}): TermSession {
   const mq = darkQuery();
   const prefs = getTermPrefs();
+  // A plain click belongs to the program in the terminal; only Cmd+click opens a link.
+  const openLink = (ev: MouseEvent, uri: string) => {
+    if (!isOpenChord(ev, isMac())) return;
+    const url = webUrl(uri);
+    if (url) cb.openUrl?.(url);
+  };
   const term = new Terminal({
     fontFamily: prefs.fontFamily,
     fontSize: prefs.fontSize,
@@ -89,9 +99,13 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     allowProposedApi: false,
     macOptionClickForcesSelection: true,
     theme: mq?.matches === false ? LIGHT : DARK,
+    // Links a program marks itself (OSC 8).
+    linkHandler: { activate: (ev, uri) => openLink(ev, uri) },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  // URLs that appear as plain text.
+  term.loadAddon(new WebLinksAddon(openLink));
   term.open(host);
   // The GPU renderer keeps every cell on an exact grid and draws box and block
   // characters itself, as a native terminal does. Without WebGL the DOM renderer stays.

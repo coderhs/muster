@@ -19,6 +19,22 @@ struct DaemonInfo {
 /// Reads `$MUSTER_HOME/daemon.json` and `token` on every call, so a restarted daemon
 /// (new port) is picked up on reconnect. Never starts a daemon: that happens once at
 /// launch, or when the user presses "Start daemon" (`start_daemon`).
+/// Opens a web link in the default browser. Only http and https: terminal output is
+/// untrusted, so no other scheme (and no file path) may reach `open`.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !is_web_url(&url) {
+        return Err("only http and https links can be opened".into());
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(opener).arg(&url).spawn().map(|_| ()).map_err(|e| format!("{opener}: {e}"))
+}
+
+fn is_web_url(url: &str) -> bool {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
+    rest.is_some_and(|r| !r.is_empty() && !r.starts_with('-')) && !url.chars().any(|c| c.is_control() || c == ' ')
+}
+
 #[tauri::command]
 fn daemon_info() -> Result<DaemonInfo, String> {
     let home = daemon::muster_home()?;
@@ -179,6 +195,7 @@ pub fn run() {
         .manage(PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
             daemon_info,
+            open_url,
             start_daemon,
             take_pending_open,
             get_notify,
@@ -215,4 +232,27 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_web_url;
+
+    #[test]
+    fn only_web_links_open() {
+        assert!(is_web_url("https://example.com/a?b=1#c"));
+        assert!(is_web_url("http://localhost:3000"));
+        for bad in [
+            "file:///etc/passwd",
+            "/Applications/Calculator.app",
+            "-a Calculator",
+            "https://",
+            "http://-x",
+            "https://a b",
+            "ssh://h",
+            "",
+        ] {
+            assert!(!is_web_url(bad), "{bad}");
+        }
+    }
 }
