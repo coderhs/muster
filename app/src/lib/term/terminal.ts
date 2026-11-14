@@ -8,6 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
+import { isNewlineChord } from "./keys";
 
 const DARK: ITheme = {
   background: "#18181a",
@@ -162,6 +163,14 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
   const binSub = term.onBinary((d) => send(d));
 
   term.attachCustomKeyEventHandler((ev) => {
+    if (isNewlineChord(ev)) {
+      // Newline without submit, as agent CLIs expect it. The keypress that follows the
+      // keydown must be refused too: xterm would otherwise send a plain Enter after
+      // the newline, which submits the prompt.
+      if (ev.type === "keydown") send("\x1b\r");
+      ev.preventDefault();
+      return false;
+    }
     if (ev.type !== "keydown") return true;
     const mac = isMac();
     const cmd = mac ? ev.metaKey : ev.ctrlKey && ev.shiftKey;
@@ -194,11 +203,6 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     }
     // Modal shortcuts (switch Terminal/Chat, move focus) must reach the page.
     if (ev.ctrlKey && (ev.key === "Tab" || ev.key === "`")) return false;
-    if (ev.key === "Enter" && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-      // Newline without submit, as agent CLIs expect it.
-      send("\x1b\r");
-      return false;
-    }
     if (!mac && cmd && (ev.key === "C" || ev.key === "V")) return false;
     return true;
   });
