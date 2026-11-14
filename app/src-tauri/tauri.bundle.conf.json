@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/musterd",
+      "binaries/muster-hook",
+      "binaries/muster"
+    ]
+  }
+}

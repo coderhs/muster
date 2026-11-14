@@ -1,0 +1,21 @@
+[package]
+name = "musterd"
+description = "The Muster daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muster-proto.workspace = true
+muster-core.workspace = true
+muster-agents = { path = "../muster-agents" }
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "sync", "macros", "process", "signal", "time", "io-util"] }
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite = { workspace = true, features = ["connect"] }
+tokio = { workspace = true, features = ["rt", "net", "sync", "macros", "process", "time", "io-util"] }

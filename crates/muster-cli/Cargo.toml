@@ -1,0 +1,19 @@
+[package]
+name = "muster-cli"
+description = "Command-line client for the Muster daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "muster"
+path = "src/main.rs"
+
+[dependencies]
+muster-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "sync", "macros", "io-util", "io-std", "signal"] }
+tokio-tungstenite = { workspace = true, features = ["connect"] }
+futures-util.workspace = true

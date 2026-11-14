@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window: folder picker only. Everything else goes over the daemon WebSocket.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:allow-open"]
+}

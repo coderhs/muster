@@ -1,0 +1,19 @@
+[package]
+name = "muster-agents"
+description = "Agent CLI adapters for Muster: launch/resume commands, per-launch hook setup, hook event normalisation, approvals, transcript and usage readers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Synchronous on purpose (std threads and channels): the daemon can wrap the receiver
+# in whatever runtime it uses, and this crate stays small.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+
+[[example]]
+name = "hook-receiver"
+path = "examples/hook_receiver.rs"

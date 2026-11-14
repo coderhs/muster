@@ -1,0 +1,16 @@
+[package]
+name = "muster-hook"
+description = "Tiny hook forwarder that agent CLIs run on every hook event; relays the payload to the Muster daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Deliberately dependency-free: this binary starts on every hook event of every
+# agent session, so it must start in a few milliseconds and never pull in an
+# async runtime, TLS or a JSON library.
+[dependencies]
+
+[[bin]]
+name = "muster-hook"
+path = "src/main.rs"

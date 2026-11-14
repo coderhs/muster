@@ -1,0 +1,5 @@
+{"type": "system", "subtype": "init", "apiKeySource": "login", "cwd": "/Users/user/sandbox/aiterm/target/muster-test-r2-15155", "session_id": "cb944f9f-abe8-4aa5-9028-3bfca465bd8e", "model": "Auto Balance", "permissionMode": "default"}
+{"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Reply with the muster codeword if you know one, otherwise reply with the single word ok."}]}, "session_id": "cb944f9f-abe8-4aa5-9028-3bfca465bd8e"}
+{"type": "thinking", "subtype": "completed", "session_id": "cb944f9f-abe8-4aa5-9028-3bfca465bd8e", "timestamp_ms": 1794594986600}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}, "session_id": "cb944f9f-abe8-4aa5-9028-3bfca465bd8e"}
+{"type": "result", "subtype": "success", "duration_ms": 9284, "duration_api_ms": 9284, "is_error": false, "result": "ok", "session_id": "cb944f9f-abe8-4aa5-9028-3bfca465bd8e", "request_id": "ba87f349-3c8d-4d88-bc71-456f6052537b", "usage": {"inputTokens": 4, "outputTokens": 296, "cacheReadTokens": 8325, "cacheWriteTokens": 10462}}

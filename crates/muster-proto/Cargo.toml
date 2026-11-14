@@ -1,0 +1,10 @@
+[package]
+name = "muster-proto"
+description = "Wire types for the Muster daemon protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

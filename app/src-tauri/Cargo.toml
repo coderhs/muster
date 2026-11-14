@@ -1,0 +1,49 @@
+[package]
+name = "muster-app"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+description = "Muster desktop shell"
+default-run = "muster-app"
+
+[features]
+# Builds the same shell under the name `muster-dev`, so the development app is
+# told apart from the stable one in the Dock and process lists (scripts/dev-app.sh).
+dev-bin = []
+
+[[bin]]
+name = "muster-app"
+path = "src/main.rs"
+
+[[bin]]
+name = "muster-dev"
+path = "src/main.rs"
+required-features = ["dev-bin"]
+
+[lib]
+name = "muster_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSBundle", "NSObject"] }
+objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSound", "UNNotificationTrigger", "block2"] }
+block2 = "0.6"
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

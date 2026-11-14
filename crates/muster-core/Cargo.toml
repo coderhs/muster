@@ -1,0 +1,16 @@
+[package]
+name = "muster-core"
+description = "Muster store, tmux session backend and board logic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muster-proto.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+rusqlite.workspace = true
+tokio = { workspace = true, features = ["process", "net", "rt", "sync", "io-util", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["process", "net", "rt", "sync", "io-util", "time", "macros"] }

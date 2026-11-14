@@ -1,0 +1,19 @@
+{
+  "productName": "Muster Dev",
+  "identifier": "dev.muster.desktop.dev",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Muster Dev",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "backgroundColor": "#1e1e20"
+      }
+    ]
+  }
+}
