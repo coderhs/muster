@@ -16,8 +16,11 @@ use crate::util::{err, hex, internal, shell_quote, Result};
 
 pub const SESSION_PREFIX: &str = "m-";
 
-/// Bytes per `send-keys -H` call.
+/// Most bytes per `send-keys -H` call. tmux limits the length of one command, and the
+/// limit differs between versions (3.8 refuses what 3.5 accepts), so the backend
+/// starts here and halves its chunk size whenever tmux answers "command too long".
 const SEND_CHUNK: usize = 2048;
+const SEND_CHUNK_MIN: usize = 16;
 pub const CONTROL_SESSION: &str = "muster-ctl";
 
 pub fn session_name(card_id: &str) -> String {
@@ -91,6 +94,8 @@ pub struct TmuxBackend {
     config: PathBuf,
     exit_dir: PathBuf,
     shell: String,
+    /// Bytes per `send-keys -H` call that this tmux has not refused yet.
+    send_chunk: std::sync::atomic::AtomicUsize,
 }
 
 /// Finds the tmux binary: `MUSTER_TMUX`, then PATH, then common locations
@@ -192,7 +197,14 @@ impl TmuxBackend {
         std::fs::create_dir_all(&exit_dir).map_err(internal)?;
         let config = home.join("tmux.conf");
         std::fs::write(&config, config_text(&tmux, &exit_dir)).map_err(internal)?;
-        Ok(TmuxBackend { tmux, socket: socket.to_string(), config, exit_dir, shell: login_shell() })
+        Ok(TmuxBackend {
+            tmux,
+            socket: socket.to_string(),
+            config,
+            exit_dir,
+            shell: login_shell(),
+            send_chunk: std::sync::atomic::AtomicUsize::new(SEND_CHUNK),
+        })
     }
 
     /// Whether a tmux binary was found.
@@ -481,10 +493,21 @@ impl SessionBackend for TmuxBackend {
         // One argument per byte: send in chunks so large input stays far below the
         // argument-size limit. Chunks are sent in order, one tmux call each.
         let target = format!("={}:", session_name(card_id));
-        for chunk in data.chunks(SEND_CHUNK) {
+        use std::sync::atomic::Ordering;
+        let mut rest = data;
+        while !rest.is_empty() {
+            let size = self.send_chunk.load(Ordering::Relaxed).min(rest.len());
             let mut args: Vec<String> = vec!["send-keys".into(), "-t".into(), target.clone(), "-H".into()];
-            args.extend(chunk.iter().map(|b| hex(&[*b])));
-            self.run(&args).await?;
+            args.extend(rest[..size].iter().map(|b| hex(&[*b])));
+            match self.run(&args).await {
+                Ok(_) => rest = &rest[size..],
+                // Nothing was sent: retry the same bytes in smaller pieces, and remember
+                // the size for later calls.
+                Err(e) if e.msg.contains("too long") && size > SEND_CHUNK_MIN => {
+                    self.send_chunk.store((size / 2).max(SEND_CHUNK_MIN), Ordering::Relaxed);
+                }
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
     }
