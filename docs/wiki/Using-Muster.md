@@ -66,7 +66,7 @@ prompt is not sent when resuming.
 
 ## Sidebar
 
-The projects sidebar can be hidden with the button at the left of the toolbar or ⌘B.
+The projects sidebar collapses to a narrow rail with the button at the left of the toolbar or ⌘B. The rail shows one tile per project in its colour, labelled with the first letter of its name, or the first two when another project starts with the same letter.
 ⌘1 to ⌘9 keep switching projects while it is hidden.
 
 ## Tracker

@@ -10,7 +10,7 @@
         ["⌘T", "Board / Tracker"],
         ["⌘1 … ⌘9", "Switch project"],
         ["⌘,", "Settings"],
-        ["⌘B", "Hide / show projects"],
+        ["⌘B", "Collapse / expand projects"],
         ["?", "This sheet"],
       ],
     },

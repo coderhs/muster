@@ -333,9 +333,10 @@
         <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} source={cap.statusSource} />
         <button
           class="icon-btn"
+          class:hidden-side={app.cardSideCollapsed}
           title={app.cardSideCollapsed ? "Show details (⌘I)" : "Hide details (⌘I)"}
           aria-pressed={!app.cardSideCollapsed}
-          onclick={() => app.toggleCardSide()}><Icon name="sidebarRight" /></button
+          onclick={() => app.toggleCardSide()}><Icon name="sidebarRight" stroke={app.cardSideCollapsed ? 2.4 : 1.5} /></button
         >
         <button class="icon-btn" title="Close (Esc, ⌘W)" onclick={close}><Icon name="close" /></button>
       </header>
@@ -566,6 +567,10 @@
 {/if}
 
 <style>
+  /* Heavier and brighter while the details column is hidden. */
+  .icon-btn.hidden-side {
+    color: var(--text);
+  }
   .scrim {
     position: fixed;
     inset: 0;

@@ -89,12 +89,11 @@
     <div
       class="side-wrap"
       class:drawer={narrow}
-      class:collapsed={!narrow && app.sidebarCollapsed}
       onclick={(e) => {
         if (narrow && (e.target as HTMLElement).closest(".item")) drawer = false;
       }}
     >
-      <Sidebar />
+      <Sidebar rail={!narrow && app.sidebarCollapsed} />
     </div>
     {#if narrow}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -108,7 +107,7 @@
       {:else}
         <button
           class="icon-btn"
-          title={app.sidebarCollapsed ? "Show projects (⌘B)" : "Hide projects (⌘B)"}
+          title={app.sidebarCollapsed ? "Expand projects (⌘B)" : "Collapse projects (⌘B)"}
           aria-pressed={!app.sidebarCollapsed}
           onclick={() => app.toggleSidebar()}><Icon name="sidebar" /></button
         >
@@ -262,13 +261,9 @@
   .side-wrap {
     display: flex;
   }
-  /* Hidden, not unmounted: the sidebar keeps handling ⌘1…9. */
-  .side-wrap.collapsed {
-    display: none;
-  }
-  /* With the sidebar hidden the toolbar starts under the window's traffic lights. */
+  /* The collapsed rail is narrower than the window's traffic lights. */
   .toolbar.lights {
-    padding-left: 84px;
+    padding-left: 30px;
   }
   .side-wrap.drawer {
     position: fixed;
