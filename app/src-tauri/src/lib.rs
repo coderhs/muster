@@ -159,7 +159,7 @@ pub(crate) fn on_tray_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
         "show" => {
             show_main(app);
         }
-        // A click on the notch strip: the card that has waited longest, else the window.
+        // A click on the notch strip: a waiting or finished card, else the window.
         "island" => match tray::longest_waiting(app) {
             Some(card) => on_tray_menu(app, &format!("card:{card}")),
             None => {

@@ -19,7 +19,7 @@ pub struct NotifyFlag(pub Arc<AtomicBool>);
 #[derive(Clone)]
 pub struct IslandFlag(pub Arc<AtomicBool>);
 
-/// What the strip last showed, and the card that has needed the user longest.
+/// What the strip last showed, and the card a click on it opens.
 #[derive(Default)]
 pub struct IslandCounts(Mutex<(island::Counts, Option<String>)>);
 
@@ -41,13 +41,12 @@ struct TrayHooks<R: Runtime> {
 
 impl<R: Runtime> Hooks for TrayHooks<R> {
     fn changed(&self, st: &State) {
-        let counts = island::Counts::of(st.cards.values().map(|c| c.status.as_str()));
-        let waiting = st
-            .cards
-            .iter()
-            .filter(|(_, c)| c.status == "needs_you")
-            .min_by_key(|(_, c)| c.status_since)
-            .map(|(id, _)| id.clone());
+        let counts = island::Counts::of(st.cards.values().map(|c| (c.status.as_str(), c.unread)));
+        // A click goes to the card that has waited longest, else the latest finished one.
+        let waiting = st.cards.iter().filter(|(_, c)| c.status == "needs_you").min_by_key(|(_, c)| c.status_since);
+        let finished =
+            st.cards.iter().filter(|(_, c)| c.status == "done" && c.unread).max_by_key(|(_, c)| c.status_since);
+        let waiting = waiting.or(finished).map(|(id, _)| id.clone());
         *self.app.state::<IslandCounts>().0.lock().unwrap() = (counts, waiting);
         refresh_island(&self.app);
         let Some(tray) = self.tray.lock().unwrap().clone() else { return };

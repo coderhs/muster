@@ -124,8 +124,8 @@
         <label class="opt">
           <input type="checkbox" checked={island.enabled} onchange={(e) => setIsland((e.currentTarget as HTMLInputElement).checked)} />
           <span>
-            <b>Show working cards around the notch</b>
-            <small>A green count of cards that are working and an orange count of cards that need you, beside the camera notch. Hidden when both are zero. Clicking opens the card that has waited longest.</small>
+            <b>Show working and finished cards around the notch</b>
+            <small>Beside the camera notch: cards that are working on the left; cards that need you (orange) and cards that have finished (green tick) on the right. A finished card clears once you open it. Clicking the strip opens a waiting or finished card.</small>
           </span>
         </label>
         {#if !island.available}

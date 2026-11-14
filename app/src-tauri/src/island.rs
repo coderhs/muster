@@ -1,5 +1,6 @@
-//! A small black strip around the display's camera notch that shows how many cards
-//! are working and how many need the user. It is a native panel, not a webview, so it
+//! A small black strip around the display's camera notch. Left of the notch: how many
+//! cards are working. Right of it: how many need the user, and how many have finished
+//! and not been opened since (opening the card clears it). It is a native panel, not a webview, so it
 //! costs almost nothing while idle. It is hidden when there is nothing to show, when
 //! switched off in Settings, and on displays without a notch.
 
@@ -10,15 +11,19 @@ use std::sync::OnceLock;
 pub struct Counts {
     pub running: usize,
     pub needs_you: usize,
+    /// Finished and not opened since.
+    pub done: usize,
 }
 
 impl Counts {
-    pub fn of<'a>(statuses: impl Iterator<Item = &'a str>) -> Counts {
+    /// From each card's status and unread flag.
+    pub fn of<'a>(cards: impl Iterator<Item = (&'a str, bool)>) -> Counts {
         let mut c = Counts::default();
-        for s in statuses {
-            match s {
-                "running" => c.running += 1,
-                "needs_you" => c.needs_you += 1,
+        for card in cards {
+            match card {
+                ("running", _) => c.running += 1,
+                ("needs_you", _) => c.needs_you += 1,
+                ("done", true) => c.done += 1,
                 _ => {}
             }
         }
@@ -26,7 +31,7 @@ impl Counts {
     }
 
     pub fn is_empty(self) -> bool {
-        self.running == 0 && self.needs_you == 0
+        self.running == 0 && self.needs_you == 0 && self.done == 0
     }
 }
 
@@ -59,7 +64,8 @@ mod imp {
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use std::cell::RefCell;
 
-    /// Width of the strip on each side of the notch.
+    /// Width of the strip on each side of the notch; the right side doubles when it
+    /// shows both waiting and finished cards.
     const EAR: f64 = 46.0;
     const RADIUS: f64 = 9.0;
     /// Above the menu bar (24) and status items (25).
@@ -94,6 +100,7 @@ mod imp {
         panel: Retained<NSPanel>,
         running: Retained<NSTextField>,
         needs: Retained<NSTextField>,
+        done: Retained<NSTextField>,
         shown: Option<(Counts, NSRect)>,
     }
 
@@ -103,7 +110,7 @@ mod imp {
 
     /// The strip's frame on the first display with a notch: the notch plus an ear on
     /// each side, as tall as the notch.
-    fn notch_frame(mtm: MainThreadMarker) -> Option<NSRect> {
+    fn notch_frame(mtm: MainThreadMarker, right: f64) -> Option<NSRect> {
         for screen in NSScreen::screens(mtm).iter() {
             let top = screen.safeAreaInsets().top;
             if top <= 0.0 {
@@ -115,7 +122,7 @@ mod imp {
             if notch <= 0.0 {
                 continue;
             }
-            let w = notch + 2.0 * EAR;
+            let w = notch + EAR + right;
             let x = f.origin.x + l.size.width - EAR;
             return Some(NSRect::new(NSPoint::new(x, f.origin.y + f.size.height - top), NSSize::new(w, top)));
         }
@@ -123,7 +130,7 @@ mod imp {
     }
 
     pub fn available() -> bool {
-        MainThreadMarker::new().is_some_and(|mtm| notch_frame(mtm).is_some())
+        MainThreadMarker::new().is_some_and(|mtm| notch_frame(mtm, EAR).is_some())
     }
 
     fn label(mtm: MainThreadMarker, color: &NSColor, align: NSTextAlignment) -> Retained<NSTextField> {
@@ -157,18 +164,21 @@ mod imp {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
         let view: Retained<StripView> = unsafe { msg_send![StripView::alloc(mtm), initWithFrame: frame] };
-        let running = label(mtm, &NSColor::systemGreenColor(), NSTextAlignment::Left);
+        let running = label(mtm, &NSColor::whiteColor(), NSTextAlignment::Left);
         let needs = label(mtm, &NSColor::systemOrangeColor(), NSTextAlignment::Right);
+        let done = label(mtm, &NSColor::systemGreenColor(), NSTextAlignment::Right);
         view.addSubview(&running);
         view.addSubview(&needs);
+        view.addSubview(&done);
         panel.setContentView(Some(&view));
-        Strip { panel, running, needs, shown: None }
+        Strip { panel, running, needs, done, shown: None }
     }
 
     pub fn update(counts: Counts, enabled: bool) {
         let Some(mtm) = MainThreadMarker::new() else { return };
         STRIP.with_borrow_mut(|slot| {
-            let frame = if enabled && !counts.is_empty() { notch_frame(mtm) } else { None };
+            let right = if counts.needs_you > 0 && counts.done > 0 { 2.0 * EAR - 10.0 } else { EAR };
+            let frame = if enabled && !counts.is_empty() { notch_frame(mtm, right) } else { None };
             let Some(frame) = frame else {
                 if let Some(s) = slot.as_mut() {
                     s.panel.orderOut(None);
@@ -180,20 +190,37 @@ mod imp {
             if s.shown == Some((counts, frame)) {
                 return;
             }
-            let text = |n: usize, left: bool| match (n, left) {
-                (0, _) => String::new(),
-                (n, true) => format!("● {n}"),
-                (n, false) => format!("{n} ●"),
+            let set = |l: &NSTextField, text: String, tip: String| {
+                l.setStringValue(&NSString::from_str(&text));
+                l.setToolTip(Some(&NSString::from_str(&tip)));
             };
-            s.running.setStringValue(&NSString::from_str(&text(counts.running, true)));
-            s.needs.setStringValue(&NSString::from_str(&text(counts.needs_you, false)));
-            s.running.setToolTip(Some(&NSString::from_str(&format!("{} working", counts.running))));
-            s.needs.setToolTip(Some(&NSString::from_str(&format!("{} need you", counts.needs_you))));
-            // Text sits in the ears, vertically centred, clear of the notch itself.
-            let (h, pad, line) = (frame.size.height, 9.0, 15.0);
+            let show = |n: usize, text: String| if n > 0 { text } else { String::new() };
+            set(
+                &s.running,
+                show(counts.running, format!("● {}", counts.running)),
+                format!("{} working", counts.running),
+            );
+            set(
+                &s.needs,
+                show(counts.needs_you, format!("{} ●", counts.needs_you)),
+                format!("{} need you", counts.needs_you),
+            );
+            set(&s.done, show(counts.done, format!("{} ✓", counts.done)), format!("{} finished", counts.done));
+            // Text sits beside the notch, vertically centred. On the right, finished
+            // cards are outermost and waiting ones (when both show) next to the notch.
+            let (h, w, pad, line) = (frame.size.height, frame.size.width, 9.0, 15.0);
             let y = ((h - line) / 2.0).floor();
-            s.running.setFrame(NSRect::new(NSPoint::new(pad, y), NSSize::new(EAR - pad, line)));
-            s.needs.setFrame(NSRect::new(NSPoint::new(frame.size.width - EAR, y), NSSize::new(EAR - pad, line)));
+            let slot_w = EAR - pad;
+            s.running.setFrame(NSRect::new(NSPoint::new(pad, y), NSSize::new(slot_w, line)));
+            let outer = NSRect::new(NSPoint::new(w - pad - slot_w, y), NSSize::new(slot_w, line));
+            let inner = NSRect::new(NSPoint::new(w - right, y), NSSize::new(slot_w, line));
+            if counts.needs_you > 0 && counts.done > 0 {
+                s.needs.setFrame(inner);
+                s.done.setFrame(outer);
+            } else {
+                s.needs.setFrame(outer);
+                s.done.setFrame(outer);
+            }
             s.panel.setFrame_display(frame, true);
             s.panel.orderFrontRegardless();
             s.shown = Some((counts, frame));
@@ -216,9 +243,18 @@ mod tests {
 
     #[test]
     fn counts_working_and_waiting_cards() {
-        let c = Counts::of(["running", "idle", "needs_you", "running", "done", "exited"].into_iter());
-        assert_eq!(c, Counts { running: 2, needs_you: 1 });
+        let cards = [
+            ("running", false),
+            ("idle", false),
+            ("needs_you", true),
+            ("running", true),
+            ("done", true),
+            ("exited", false),
+        ];
+        let c = Counts::of(cards.into_iter());
+        assert_eq!(c, Counts { running: 2, needs_you: 1, done: 1 });
         assert!(!c.is_empty());
-        assert!(Counts::of(["idle", "done"].into_iter()).is_empty());
+        // A finished card the user has opened no longer shows.
+        assert!(Counts::of([("idle", false), ("done", false)].into_iter()).is_empty());
     }
 }
