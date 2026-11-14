@@ -437,7 +437,8 @@ rejected for a missing or wrong card secret).
   - `message.send` to a linked card;
   - `card.get` of itself or a linked card; `board.get` of its own project, showing only
     itself and linked cards;
-  - `card.move` and `card.handoff` of itself; `card.update` of its own `notes` only.
+  - `card.move` and `card.handoff` of itself; `card.update` of its own `notes` only;
+  - `comment.list` and `comment.add` on itself or a linked card (round 6).
 
   Everything else (approvals, terminal and session methods, projects, columns, links,
   settings, stats, card creation and deletion, reading unlinked cards) is refused with
@@ -477,3 +478,46 @@ reveals where that is). A real boundary needs the agent's own sandbox to deny
   operations with `unavailable`.
 - Before remote access (phase 8) the single master token must be replaced by per-device
   tokens that can be revoked; the loopback check means nothing behind `tailscale serve`.
+
+## Comments and notes authorship (round 6)
+
+A card has a list of comments, written by the user and by agents. The daemon decides who
+the author is; a client never does.
+
+| Method | Params | Result |
+|---|---|---|
+| `comment.list` | `{cardId}` | `{comments: Comment[]}`, oldest first |
+| `comment.add` | `{cardId, text, fromCardId?}` | `{comment}` |
+| `comment.delete` | `{id}` | `{}` |
+
+| Event | Payload |
+|---|---|
+| `comment.changed` | `{comment}` (added) or `{removedId, cardId}` |
+
+```
+Comment {id, cardId, author: Author, text, createdAt}
+Author  {kind: "user"|"agent", cardId?, agentId?, cardTitle?}
+Card    {..., commentCount, notesEditedBy?: Author, notesEditedAt?}
+```
+
+- **Author.** With the master token the author is the user, unless `fromCardId` names a
+  card (the CLI does this when `MUSTER_CARD_ID` is set). With a card token the daemon
+  sets `fromCardId` to the token's card whatever the caller sent, so an agent always
+  signs as itself. An agent author carries its card id, that card's agent id and the
+  card's title at the time of writing.
+- **Card tokens** may list and add comments on their own card and on linked cards
+  (`unauthorized` otherwise) and may not delete comments.
+- **Text.** Control characters other than newline and tab are removed (agents read
+  comments in a terminal). Empty text and text over 8000 characters are `invalid`. An
+  agent may add at most 20 comments a minute to the same card (`unavailable` beyond).
+  A card keeps its newest 500 comments.
+- **Unread.** A comment by an agent sets the card's `unread`, so it shows on the board
+  and in the tracker; `card.markRead` clears it. A comment by the user does not.
+- `comment.add` and `comment.delete` are followed by `card.changed` for the card
+  (`commentCount`, `unread`). Deleting a card deletes its comments.
+- **Notes.** When `card.update` changes `notes`, the daemon records `notesEditedBy` and
+  `notesEditedAt` with the same author rule (`card.update` accepts `fromCardId` for
+  this; a card token's is always its own card). An unchanged value records nothing.
+- `context.read` accepts `kind: "comments"`: the card's comments as text, each headed by
+  its time (UTC) and author, e.g. `agent claude (card ab12cd "Fix login")` or `user`.
+  The summary kind mentions the comment count.

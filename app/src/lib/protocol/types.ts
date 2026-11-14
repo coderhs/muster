@@ -62,6 +62,28 @@ export interface Card {
   /** The session vanished without exiting (reboot); card.start restores it. */
   restorable?: boolean;
   queuedMessages?: Message[] | null;
+  /** Number of comments on the card; `comment.list` returns them. */
+  commentCount?: number;
+  /** Who last changed the notes, and when. */
+  notesEditedBy?: Author | null;
+  notesEditedAt?: number | null;
+}
+
+/** Who wrote a comment or edited notes. Set by the daemon, never by the client. */
+export interface Author {
+  kind: "user" | "agent";
+  /** For an agent: its card, agent id and the card's title when it wrote. */
+  cardId?: Id | null;
+  agentId?: string | null;
+  cardTitle?: string | null;
+}
+
+export interface Comment {
+  id: Id;
+  cardId: Id;
+  author: Author;
+  text: string;
+  createdAt: number;
 }
 
 export interface Link {
@@ -292,13 +314,16 @@ export interface Methods {
   "link.remove": [Link, Record<string, never>];
   "context.list": [{ cardId: Id }, { cards: Card[] }];
   "context.read": [
-    { cardId: Id; fromCardId?: Id; kind: "transcript" | "screen" | "notes" | "summary"; limit?: number },
+    { cardId: Id; fromCardId?: Id; kind: "transcript" | "screen" | "notes" | "summary" | "comments"; limit?: number },
     { text: string },
   ];
   "message.send": [{ cardId: Id; fromCardId?: Id; text: string }, { message: Message }];
   "message.cancel": [{ id: Id }, Record<string, never>];
   "card.handoff": [{ id: Id; agentId?: string }, { card: Card }];
   "daemon.status": [Record<string, never>, DaemonStatus];
+  "comment.list": [{ cardId: Id }, { comments: Comment[] }];
+  "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
+  "comment.delete": [{ id: Id }, Record<string, never>];
 }
 
 export type Method = keyof Methods;
@@ -318,6 +343,7 @@ export interface Events {
   "settings.changed": { settings: Settings };
   "link.changed": { link: Link; linked: boolean };
   "daemon.status": DaemonStatus;
+  "comment.changed": { comment: Comment } | { removedId: Id; cardId: Id };
 }
 
 export type EventName = keyof Events;

@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use muster_proto::{Card, CardStatus, Column, ColumnCategory, ErrorCode, Link, Message, Priority, Project};
+use muster_proto::{
+    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, Comment, ErrorCode, Link, Message, Priority, Project,
+};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::rank;
@@ -98,7 +100,26 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE cards ADD COLUMN card_token_hash TEXT;
     CREATE INDEX cards_token ON cards(card_token_hash);
     "#,
+    // v6: comments, who last edited the notes
+    r#"
+    CREATE TABLE comments (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        author_kind TEXT NOT NULL,
+        author_card_id TEXT,
+        author_agent_id TEXT,
+        author_card_title TEXT,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX comments_card ON comments(card_id, created_at);
+    ALTER TABLE cards ADD COLUMN notes_edited_by TEXT;
+    ALTER TABLE cards ADD COLUMN notes_edited_at INTEGER;
+    "#,
 ];
+
+/// Comments kept per card; the oldest are dropped beyond this.
+pub const COMMENTS_KEEP: i64 = 500;
 
 /// Activity rows kept per card.
 pub const ACTIVITY_KEEP: i64 = 1000;
@@ -163,11 +184,40 @@ pub struct CardPatch {
     pub priority: Option<Option<Priority>>,
     pub due_at: Option<Option<i64>>,
     pub title_auto: Option<bool>,
+    /// Who makes the change; recorded when the notes change.
+    pub editor: Option<Author>,
 }
 
-const CARD_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes, \
+/// The stored columns a new card is inserted with.
+const CARD_INSERT_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes, \
      priority, due_at, agent_session_id, status, status_since, turn_started_at, last_activity_at, \
      unread, created_at, updated_at, needs_you_reason, pending_approval, context, title_source, setup, restorable";
+
+/// What a card is read with: the insert columns, then the derived comment count and
+/// the notes' last editor.
+const CARD_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes, \
+     priority, due_at, agent_session_id, status, status_since, turn_started_at, last_activity_at, \
+     unread, created_at, updated_at, needs_you_reason, pending_approval, context, title_source, setup, restorable, \
+     (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at";
+
+const COMMENT_COLS: &str =
+    "id, card_id, author_kind, author_card_id, author_agent_id, author_card_title, text, created_at";
+
+fn comment_from_row(r: &Row) -> rusqlite::Result<Comment> {
+    let kind: String = r.get(2)?;
+    Ok(Comment {
+        id: r.get(0)?,
+        card_id: r.get(1)?,
+        author: Author {
+            kind: if kind == "agent" { AuthorKind::Agent } else { AuthorKind::User },
+            card_id: r.get(3)?,
+            agent_id: r.get(4)?,
+            card_title: r.get(5)?,
+        },
+        text: r.get(6)?,
+        created_at: r.get(7)?,
+    })
+}
 
 fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
     let priority: Option<String> = r.get(10)?;
@@ -201,6 +251,9 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         setup: r.get::<_, Option<String>>(24)?.and_then(|s| serde_json::from_str(&s).ok()),
         restorable: r.get::<_, i64>(25)? != 0,
         queued_messages: vec![],
+        comment_count: r.get::<_, i64>(26)?.max(0) as u32,
+        notes_edited_by: r.get::<_, Option<String>>(27)?.and_then(|s| serde_json::from_str(&s).ok()),
+        notes_edited_at: r.get(28)?,
     })
 }
 
@@ -647,10 +700,13 @@ impl Store {
             setup: None,
             restorable: false,
             queued_messages: vec![],
+            comment_count: 0,
+            notes_edited_by: None,
+            notes_edited_at: None,
         };
         self.conn
             .execute(
-                &format!("INSERT INTO cards ({CARD_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,NULL,NULL,NULL,?21,NULL,0)"),
+                &format!("INSERT INTO cards ({CARD_INSERT_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,NULL,NULL,NULL,?21,NULL,0)"),
                 params![
                     card.id, card.project_id, card.column_id, card.rank, card.title, card.agent_id, card.cwd,
                     card.branch, card.prompt, card.notes, None::<String>, card.due_at, card.agent_session_id,
@@ -692,6 +748,10 @@ impl Store {
             c.prompt = p;
         }
         if let Some(n) = patch.notes {
+            if n != c.notes {
+                c.notes_edited_by = Some(patch.editor.clone().unwrap_or_else(Author::user));
+                c.notes_edited_at = Some(now_ms());
+            }
             c.notes = n;
         }
         if let Some(p) = patch.priority {
@@ -703,9 +763,19 @@ impl Store {
         c.updated_at = now_ms();
         self.conn
             .execute(
-                "UPDATE cards SET title = ?2, prompt = ?3, notes = ?4, priority = ?5, due_at = ?6, updated_at = ?7 \
-                 WHERE id = ?1",
-                params![c.id, c.title, c.prompt, c.notes, c.priority.map(|p| p.as_str()), c.due_at, c.updated_at],
+                "UPDATE cards SET title = ?2, prompt = ?3, notes = ?4, priority = ?5, due_at = ?6, updated_at = ?7, \
+                 notes_edited_by = ?8, notes_edited_at = ?9 WHERE id = ?1",
+                params![
+                    c.id,
+                    c.title,
+                    c.prompt,
+                    c.notes,
+                    c.priority.map(|p| p.as_str()),
+                    c.due_at,
+                    c.updated_at,
+                    c.notes_edited_by.as_ref().and_then(|a| serde_json::to_string(a).ok()),
+                    c.notes_edited_at
+                ],
             )
             .map_err(sql_err)?;
         Ok(c)
@@ -1081,6 +1151,64 @@ impl Store {
         Ok(())
     }
 
+    // -- comments ----------------------------------------------------------
+
+    /// Adds a comment and returns it. A comment by an agent marks the card unread, so
+    /// it shows on the board and in the tracker. Only the newest [`COMMENTS_KEEP`]
+    /// comments of a card are kept.
+    pub fn add_comment(&mut self, card_id: &str, author: &Author, text: &str) -> Result<Comment> {
+        self.get_card(card_id)?;
+        let c = Comment {
+            id: new_id(),
+            card_id: card_id.into(),
+            author: author.clone(),
+            text: text.into(),
+            created_at: now_ms(),
+        };
+        let kind = if author.kind == AuthorKind::Agent { "agent" } else { "user" };
+        let tx = self.conn.transaction().map_err(sql_err)?;
+        tx.execute(
+            &format!("INSERT INTO comments ({COMMENT_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"),
+            params![c.id, c.card_id, kind, author.card_id, author.agent_id, author.card_title, c.text, c.created_at],
+        )
+        .map_err(sql_err)?;
+        tx.execute(
+            "DELETE FROM comments WHERE card_id = ?1 AND id NOT IN \
+             (SELECT id FROM comments WHERE card_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2)",
+            params![card_id, COMMENTS_KEEP],
+        )
+        .map_err(sql_err)?;
+        if author.kind == AuthorKind::Agent {
+            tx.execute("UPDATE cards SET unread = 1, updated_at = ?2 WHERE id = ?1", params![card_id, c.created_at])
+                .map_err(sql_err)?;
+        }
+        tx.commit().map_err(sql_err)?;
+        Ok(c)
+    }
+
+    /// A card's comments, oldest first.
+    pub fn list_comments(&self, card_id: &str) -> Result<Vec<Comment>> {
+        let mut st = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {COMMENT_COLS} FROM comments WHERE card_id = ?1 ORDER BY created_at, rowid"
+            ))
+            .map_err(sql_err)?;
+        let rows = st.query_map([card_id], comment_from_row).map_err(sql_err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(sql_err)
+    }
+
+    pub fn delete_comment(&mut self, id: &str) -> Result<Comment> {
+        let c = self
+            .conn
+            .query_row(&format!("SELECT {COMMENT_COLS} FROM comments WHERE id = ?1"), [id], comment_from_row)
+            .optional()
+            .map_err(sql_err)?
+            .ok_or_else(|| not_found("comment", id))?;
+        self.conn.execute("DELETE FROM comments WHERE id = ?1", [id]).map_err(sql_err)?;
+        Ok(c)
+    }
+
     /// The persisted agent tracker state (opaque JSON), if any.
     pub fn tracker(&self, id: &str) -> Result<Option<String>> {
         self.conn
@@ -1355,6 +1483,53 @@ mod tests {
         assert!(s.get_card(&a.id).unwrap().queued_messages.is_empty());
         assert!(s.remove_link(&a.id, &b.id).unwrap().is_some());
         assert!(!s.is_linked(&a.id, &b.id).unwrap());
+    }
+
+    #[test]
+    fn comments_and_notes_editor() {
+        let (mut s, p, cols) = store_with_project();
+        let a = card(&mut s, &p, &cols[0], "a");
+        let agent = Author {
+            kind: AuthorKind::Agent,
+            card_id: Some(a.id.clone()),
+            agent_id: Some("claude".into()),
+            card_title: Some("a".into()),
+        };
+        let c1 = s.add_comment(&a.id, &Author::user(), "mine").unwrap();
+        assert!(!s.get_card(&a.id).unwrap().unread, "my own comment does not flag the card");
+        let c2 = s.add_comment(&a.id, &agent, "the agent's").unwrap();
+        let got = s.get_card(&a.id).unwrap();
+        assert!(got.unread);
+        assert_eq!(got.comment_count, 2);
+        assert_eq!(s.list_comments(&a.id).unwrap(), vec![c1.clone(), c2.clone()]);
+        assert_eq!(s.list_cards(&p.id).unwrap()[0].comment_count, 2);
+        assert_eq!(s.delete_comment(&c1.id).unwrap(), c1);
+        assert_eq!(s.delete_comment(&c1.id).unwrap_err().code, ErrorCode::NotFound);
+        assert_eq!(s.add_comment("nope", &agent, "x").unwrap_err().code, ErrorCode::NotFound);
+
+        // Notes record who last changed them; an unchanged value records nothing.
+        assert!(got.notes_edited_by.is_none());
+        let n = s.update_card(&a.id, CardPatch { notes: Some(Some("n".into())), ..Default::default() }).unwrap();
+        assert_eq!(n.notes_edited_by, Some(Author::user()));
+        let n = s
+            .update_card(
+                &a.id,
+                CardPatch { notes: Some(Some("n".into())), editor: Some(agent.clone()), ..Default::default() },
+            )
+            .unwrap();
+        assert_eq!(n.notes_edited_by, Some(Author::user()));
+        let n = s
+            .update_card(
+                &a.id,
+                CardPatch { notes: Some(Some("n2".into())), editor: Some(agent.clone()), ..Default::default() },
+            )
+            .unwrap();
+        assert_eq!(n.notes_edited_by, Some(agent));
+        assert_eq!(s.get_card(&a.id).unwrap().notes_edited_by, n.notes_edited_by);
+
+        // Deleting the card removes its comments.
+        s.delete_card(&a.id).unwrap();
+        assert!(s.list_comments(&a.id).unwrap().is_empty());
     }
 
     #[test]

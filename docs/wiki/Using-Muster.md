@@ -57,8 +57,17 @@ prompt is not sent when resuming.
   can read.
 - **Approvals and questions**: for Claude Code, a permission request, a question or a
   plan can be answered from the card without opening the terminal.
-- **Notes, priority, due date, links**: plain card fields. Links connect cards for
-  [context sharing](Context-Sharing.md).
+- **Details**: column, priority, due date, notes and links. Links connect cards for
+  [context sharing](Context-Sharing.md). The notes show who last edited them.
+- **Comments**: the second tab of the same column. You and agents both write here, and
+  every comment says who wrote it.
+- The details column can be hidden with its button in the card's title bar or ⌘I,
+  which gives the terminal the full width.
+
+## Sidebar
+
+The projects sidebar can be hidden with the button at the left of the toolbar or ⌘B.
+⌘1 to ⌘9 keep switching projects while it is hidden.
 
 ## Tracker
 

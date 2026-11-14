@@ -136,6 +136,14 @@ pub async fn read(st: &Arc<State>, p: &ContextReadParams) -> Result<String> {
     let limit = p.limit.unwrap_or(20).clamp(1, 200) as usize;
     let text = match p.kind {
         ContextKind::Notes => card.notes.clone().unwrap_or_else(|| "(no notes)".into()),
+        ContextKind::Comments => {
+            let comments = st.store.lock().unwrap().list_comments(&card.id)?;
+            if comments.is_empty() {
+                "(no comments)".into()
+            } else {
+                render_comments(&comments)
+            }
+        }
         ContextKind::Screen => {
             if st.has_session(&card.id) {
                 st.backend.capture(&card.id, 0, false).await.unwrap_or_default().trim_end().to_string()
@@ -168,6 +176,9 @@ pub async fn read(st: &Arc<State>, p: &ContextReadParams) -> Result<String> {
             if let Some(n) = &card.notes {
                 s.push_str(&format!("notes: {n}\n"));
             }
+            if card.comment_count > 0 {
+                s.push_str(&format!("comments: {} (read with --comments)\n", card.comment_count));
+            }
             let msgs = st.agents.transcript_messages(st, &card, 40).unwrap_or_default();
             let last_user = msgs.iter().rev().find(|m| m.role == muster_agents::ChatRole::User);
             let last_reply = msgs.iter().rev().find(|m| m.role == muster_agents::ChatRole::Assistant);
@@ -190,6 +201,97 @@ pub async fn read(st: &Arc<State>, p: &ContextReadParams) -> Result<String> {
         }
     };
     Ok(cap(text))
+}
+
+/// Who a comment or notes edit is from: the agent of card `from`, or the user.
+pub fn author(st: &State, from: Option<&str>) -> Result<Author> {
+    let Some(from) = from else { return Ok(Author::user()) };
+    let card = st.store.lock().unwrap().get_card(from)?;
+    Ok(Author {
+        kind: AuthorKind::Agent,
+        card_id: Some(card.id),
+        agent_id: Some(card.agent_id),
+        card_title: Some(card.title.chars().take(80).collect()),
+    })
+}
+
+/// How an author is named in text shown to agents.
+fn author_name(a: &Author) -> String {
+    match a.kind {
+        AuthorKind::User => "user".into(),
+        AuthorKind::Agent => format!(
+            "agent {} (card {} \"{}\")",
+            a.agent_id.as_deref().unwrap_or("?"),
+            a.card_id.as_deref().unwrap_or("?"),
+            a.card_title.as_deref().unwrap_or("")
+        ),
+    }
+}
+
+fn render_comments(comments: &[Comment]) -> String {
+    let mut out = String::new();
+    for c in comments {
+        out.push_str(&format!("[{}] {}:\n{}\n\n", iso_minute(c.created_at), author_name(&c.author), c.text));
+    }
+    out.trim_end().to_string()
+}
+
+/// `YYYY-MM-DD HH:MMZ` for a unix time in milliseconds.
+fn iso_minute(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (proleptic Gregorian).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}Z", rem / 3600, (rem / 60) % 60)
+}
+
+/// Comments an agent may add to one card per [`RATE_WINDOW`].
+const COMMENT_RATE_LIMIT: usize = 20;
+
+/// `comment.add`. The author comes from `fromCardId` (which the daemon sets itself for
+/// a card token): an agent's comment is signed with its card, and marks the card
+/// unread so the user sees it on the board and in the tracker.
+pub fn add_comment(st: &Arc<State>, p: &CommentAddParams) -> Result<Comment> {
+    // Agents read comments in their terminal, so control characters are dropped.
+    let text = sanitize(&p.text).trim().to_string();
+    if text.is_empty() {
+        return Err(err(ErrorCode::Invalid, "empty comment"));
+    }
+    if text.chars().count() > MAX_MESSAGE {
+        return Err(err(ErrorCode::Invalid, format!("comments are limited to {MAX_MESSAGE} characters")));
+    }
+    let author = author(st, p.from_card_id.as_deref())?;
+    if let Some(from) = &p.from_card_id {
+        let mut log = sent_log().lock().unwrap();
+        let times = log.entry((from.clone(), format!("comment:{}", p.card_id))).or_default();
+        times.retain(|t| t.elapsed() < RATE_WINDOW);
+        if times.len() >= COMMENT_RATE_LIMIT {
+            return Err(err(ErrorCode::Unavailable, "too many comments on that card; try again in a minute"));
+        }
+        times.push(Instant::now());
+    }
+    let comment = st.store.lock().unwrap().add_comment(&p.card_id, &author, &text)?;
+    st.clients.broadcast(&Event::CommentChanged(CommentChanged::Added { comment: comment.clone() }));
+    // The card's comment count (and, for an agent's comment, its unread flag) changed.
+    let card = st.store.lock().unwrap().get_card(&p.card_id)?;
+    st.emit_card(card);
+    Ok(comment)
+}
+
+pub fn delete_comment(st: &Arc<State>, id: &str) -> Result<()> {
+    let c = st.store.lock().unwrap().delete_comment(id)?;
+    st.clients
+        .broadcast(&Event::CommentChanged(CommentChanged::Removed { removed_id: c.id, card_id: c.card_id.clone() }));
+    let card = st.store.lock().unwrap().get_card(&c.card_id)?;
+    st.emit_card(card);
+    Ok(())
 }
 
 /// Longest message accepted, in characters.
@@ -385,8 +487,8 @@ pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
         format!(
             "You are running inside a Muster card: one session on the user's kanban board of coding \
              agents. Your card id is in $MUSTER_CARD_ID. The `muster` CLI ({cli}, also in $MUSTER_CLI) \
-             reads linked cards' context, keeps your card's notes, moves your card and messages other \
-             cards; run `$MUSTER_CLI help` or use the muster skill for details. It acts only for your \
+             reads linked cards' context, keeps your card's notes, comments on cards, moves your card \
+             and messages other cards; run `$MUSTER_CLI help` or use the muster skill for details. It acts only for your \
              card (with its own token, $MUSTER_CARD_TOKEN) and can read only cards linked to yours. \
              Prompts that start with \
              `[Muster message from card ...]` come from another agent's card.\n"
@@ -408,12 +510,17 @@ pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
              - `$MUSTER_CLI context read <card> --transcript 40`: the newest 40 chat messages as text.\n\
              - `$MUSTER_CLI context read <card> --screen`: that card's terminal screen.\n\
              - `$MUSTER_CLI context read <card> --notes`: that card's notes.\n\
+             - `$MUSTER_CLI context read <card> --comments`: that card's comments, with who wrote each.\n\
              - `$MUSTER_CLI notes set \"text\"` / `$MUSTER_CLI notes append \"text\"`: your card's notes.\n\
+             - `$MUSTER_CLI comment add \"text\"`: a comment on your own card, shown to the user under \
+             your name; `--card <card>` comments on a linked card instead. Use comments for progress, \
+             decisions and questions the user should see; use notes for a running summary.\n\
+             - `$MUSTER_CLI comment list [<card>]`: comments on your card or a linked one.\n\
              - `$MUSTER_CLI card move --me <column>`: move your card, e.g. to `Done`.\n\
              - `$MUSTER_CLI send <card> \"text\"`: message another card. It is typed into that agent's \
              session when it is between turns; until then it waits.\n\n\
              The CLI uses your card's own token (`$MUSTER_CARD_TOKEN`): it can act only for your card, \
-             read and message only cards linked to yours, and cannot create links, answer approvals \
+             read, comment on and message only cards linked to yours, and cannot create links, answer approvals \
              or type into other cards. Messages to you arrive as prompts starting with \
              `[Muster message from card <id> ...]`; reply with `$MUSTER_CLI send <id> \"...\"`.\n"
         ),
@@ -423,7 +530,14 @@ pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
 
 #[cfg(test)]
 mod tests {
-    use super::{delivery_bytes, sanitize, strip_ansi};
+    use super::{delivery_bytes, iso_minute, sanitize, strip_ansi};
+
+    #[test]
+    fn minute_stamps() {
+        assert_eq!(iso_minute(0), "1970-01-01 00:00Z");
+        assert_eq!(iso_minute(1_794_625_329_684), "2026-11-14 03:02Z");
+        assert_eq!(iso_minute(951_782_400_000), "2000-02-29 00:00Z");
+    }
 
     #[test]
     fn delivered_text_cannot_escape() {

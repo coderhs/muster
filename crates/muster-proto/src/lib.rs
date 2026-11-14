@@ -307,6 +307,55 @@ pub struct Card {
     /// Messages waiting for the card to become idle or done.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued_messages: Vec<Message>,
+    /// Number of comments on the card (`comment.list` returns them).
+    #[serde(default)]
+    pub comment_count: u32,
+    /// Who last changed the notes, and when. Absent until the notes are first edited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes_edited_by: Option<Author>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes_edited_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorKind {
+    /// The person using Muster (the app, or the CLI outside a card).
+    User,
+    /// The agent running in a card.
+    Agent,
+}
+
+/// Who wrote a comment or edited notes. The daemon fills this in from the connection
+/// (a card's own token means that card's agent); a client cannot choose it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Author {
+    pub kind: AuthorKind,
+    /// For an agent: its card, that card's agent id and its title when it wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_title: Option<String>,
+}
+
+impl Author {
+    pub fn user() -> Author {
+        Author { kind: AuthorKind::User, card_id: None, agent_id: None, card_title: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub id: String,
+    /// The card the comment is on.
+    pub card_id: String,
+    pub author: Author,
+    pub text: String,
+    pub created_at: i64,
 }
 
 /// An undirected link between two cards; `a` sorts before `b`.
@@ -787,6 +836,10 @@ pub struct CardUpdateParams {
     /// `true` hands the title back to the daemon. Setting `title` makes it `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_auto: Option<bool>,
+    /// The card whose agent makes the change (recorded as the notes' editor). Set by
+    /// the daemon for a card token; absent for a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_card_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -994,6 +1047,7 @@ pub enum ContextKind {
     Screen,
     Notes,
     Summary,
+    Comments,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1039,6 +1093,31 @@ pub struct CardHandoffParams {
     pub agent_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentAddParams {
+    /// The card to comment on.
+    pub card_id: String,
+    /// The commenting card (an agent). Set by the daemon for a card token; absent for
+    /// a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_card_id: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentResult {
+    pub comment: Comment,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentListResult {
+    /// Oldest first.
+    pub comments: Vec<Comment>,
+}
+
 /// Every request a client can make, with typed parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Method {
@@ -1080,6 +1159,9 @@ pub enum Method {
     MessageCancel(IdParams),
     CardHandoff(CardHandoffParams),
     DaemonStatus(Empty),
+    CommentList(CardIdParams),
+    CommentAdd(CommentAddParams),
+    CommentDelete(IdParams),
 }
 
 macro_rules! methods {
@@ -1151,6 +1233,9 @@ methods! {
     MessageCancel => "message.cancel",
     CardHandoff => "card.handoff",
     DaemonStatus => "daemon.status",
+    CommentList => "comment.list",
+    CommentAdd => "comment.add",
+    CommentDelete => "comment.delete",
 }
 
 impl Method {
@@ -1240,6 +1325,15 @@ pub struct LinkChanged {
     pub linked: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum CommentChanged {
+    #[serde(rename_all = "camelCase")]
+    Added { comment: Comment },
+    #[serde(rename_all = "camelCase")]
+    Removed { removed_id: String, card_id: String },
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -1254,6 +1348,7 @@ pub enum Event {
     SettingsChanged(SettingsResult),
     LinkChanged(LinkChanged),
     StatusChanged(DaemonStatus),
+    CommentChanged(CommentChanged),
 }
 
 impl Event {
@@ -1270,6 +1365,7 @@ impl Event {
             Event::SettingsChanged(_) => "settings.changed",
             Event::LinkChanged(_) => "link.changed",
             Event::StatusChanged(_) => "daemon.status",
+            Event::CommentChanged(_) => "comment.changed",
         }
     }
 
@@ -1286,6 +1382,7 @@ impl Event {
             Event::SettingsChanged(p) => serde_json::to_value(p),
             Event::LinkChanged(p) => serde_json::to_value(p),
             Event::StatusChanged(p) => serde_json::to_value(p),
+            Event::CommentChanged(p) => serde_json::to_value(p),
         }
         .expect("event serialises");
         EventFrame { t: FrameTag::Ev, m: self.name().to_string(), p }
@@ -1307,6 +1404,7 @@ impl Event {
             "settings.changed" => serde_json::from_value(p).map(Event::SettingsChanged),
             "link.changed" => serde_json::from_value(p).map(Event::LinkChanged),
             "daemon.status" => serde_json::from_value(p).map(Event::StatusChanged),
+            "comment.changed" => serde_json::from_value(p).map(Event::CommentChanged),
             _ => return None,
         })
     }
@@ -1401,6 +1499,9 @@ mod tests {
             setup: None,
             restorable: false,
             queued_messages: vec![],
+            comment_count: 0,
+            notes_edited_by: None,
+            notes_edited_at: None,
         };
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(v["status"], "needs_you");

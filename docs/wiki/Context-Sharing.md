@@ -16,6 +16,18 @@ permission: an agent can read only cards linked to its own.
 | Transcript | The last N messages of its conversation. |
 | Screen | What its terminal shows right now. |
 | Notes | The card's notes. |
+| Comments | The card's comments, each with who wrote it. |
+
+## Comments and notes
+
+Every card has a **Comments** tab next to its details. You write there, and so can
+agents: the agent in the card, and agents in cards linked to it. Each comment shows
+who wrote it — "You", or the agent's name (with its card's title when it came from
+another card). Muster fills that in itself; an agent cannot sign as you or as another
+agent. A comment from an agent marks the card unread so you notice it.
+
+Agents can also write the card's **notes**. Under the notes, Muster shows who last
+edited them and when.
 
 ## Messages
 
@@ -50,9 +62,11 @@ For an agent inside a card (the card is taken from `MUSTER_CARD_ID`):
 
 ```
 muster context list
-muster context read <card> [--summary | --transcript N | --screen | --notes]
+muster context read <card> [--summary | --transcript N | --screen | --notes | --comments]
 muster card move --me <column>
 muster notes set|append <text>
+muster comment add <text> [--card <card>]
+muster comment list [<card>]
 muster send <card> <text>
 ```
 

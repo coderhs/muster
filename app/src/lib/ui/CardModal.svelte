@@ -13,6 +13,10 @@
   import ApprovalBar from "./ApprovalBar.svelte";
   import ChatView from "./ChatView.svelte";
   import ContextMeter from "./ContextMeter.svelte";
+  import Comments from "./Comments.svelte";
+  import { authorLabel } from "./authors";
+  import { agoLabel } from "./time";
+  import { clock } from "../state/clock.svelte";
   import { caps, reasonLabel } from "../agent/agent";
 
   let { cardId }: { cardId: Id } = $props();
@@ -55,6 +59,25 @@
       app.applyCard(c);
     } catch {
       /* toast shown (conflict: already delivered) */
+    }
+  }
+  // The details column has two tabs; the choice is remembered.
+  const SIDE_TAB_KEY = "muster.modal.sideTab";
+  let sideTab = $state<"details" | "comments">(
+    (() => {
+      try {
+        return localStorage.getItem(SIDE_TAB_KEY) === "comments" ? "comments" : "details";
+      } catch {
+        return "details";
+      }
+    })(),
+  );
+  function setSideTab(t: "details" | "comments") {
+    sideTab = t;
+    try {
+      localStorage.setItem(SIDE_TAB_KEY, t);
+    } catch {
+      /* ignore */
     }
   }
   const TAB_KEY = "muster.modal.tab";
@@ -252,7 +275,9 @@
       e.preventDefault();
       if (inTerm) {
         if (app.cardSideCollapsed) app.toggleCardSide();
-        void tick().then(() => (document.querySelector(".side input") as HTMLElement | null)?.focus());
+        void tick().then(() =>
+          (document.querySelector(".side .sidepane:not(.hidden) :is(input, textarea)") as HTMLElement | null)?.focus(),
+        );
       }
       else term?.focus();
     }
@@ -375,6 +400,16 @@
         </div>
 
         <aside class="side" class:collapsed={app.cardSideCollapsed}>
+          <div class="sidetabs" role="tablist" aria-label="Card panel">
+            <button role="tab" aria-selected={sideTab === "details"} class:on={sideTab === "details"} onclick={() => setSideTab("details")}>Details</button>
+            <button role="tab" aria-selected={sideTab === "comments"} class:on={sideTab === "comments"} onclick={() => setSideTab("comments")}>
+              Comments{#if card.commentCount}<span class="count">{card.commentCount}</span>{/if}
+            </button>
+          </div>
+          <div class="sidepane" class:hidden={sideTab !== "comments"}>
+            <Comments {cardId} active={sideTab === "comments" && !app.cardSideCollapsed} />
+          </div>
+          <div class="sidepane details" class:hidden={sideTab !== "details"}>
           <section>
             <div class="label">Column</div>
             <Select
@@ -409,7 +444,7 @@
             <div class="label">Notes</div>
             <textarea
               class="field notes"
-              placeholder="Notes for yourself"
+              placeholder="Notes: yours and the agent's"
               bind:value={notesDraft}
               oninput={notesInput}
               onfocus={() => (focused = "notes")}
@@ -418,6 +453,11 @@
                 void saveNotes();
               }}
             ></textarea>
+            {#if card.notesEditedAt}
+              <div class="muted edited" title={new Date(card.notesEditedAt).toLocaleString()}>
+                Edited by {authorLabel(card.notesEditedBy, (id) => app.agent(id), cardId)} · {agoLabel(card.notesEditedAt, clock.now)}
+              </div>
+            {/if}
           </section>
 
           <section>
@@ -482,6 +522,7 @@
             {/if}
             <button class="btn danger" onclick={() => (deleting = true)}><Icon name="trash" size={12} />Delete</button>
           </section>
+          </div>
         </aside>
       </div>
     </div>
@@ -742,11 +783,61 @@
     width: 272px;
     flex: none;
     border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidetabs {
+    flex: none;
+    display: flex;
+    gap: 2px;
+    padding: 8px 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidetabs button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .sidetabs button.on {
+    color: var(--text);
+    border-bottom-color: var(--accent, #0a84ff);
+  }
+  .sidetabs .count {
+    min-width: 16px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--bg-active);
+    font-size: 10.5px;
+    font-weight: 600;
+    display: inline-grid;
+    place-items: center;
+  }
+  .sidepane {
+    flex: 1;
+    min-height: 0;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  .sidepane.details {
     overflow-y: auto;
+  }
+  .sidepane.hidden {
+    display: none;
+  }
+  .edited {
+    font-size: 11px;
   }
   /* Hidden, not unmounted, so unsaved notes and drafts survive a toggle. */
   .side.collapsed {

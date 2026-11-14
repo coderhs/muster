@@ -425,6 +425,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
         }
 
         Method::CardUpdate(p) => {
+            let editor = crate::context::author(&st, p.from_card_id.as_deref())?;
             let card = st.store.lock().unwrap().update_card(
                 &p.id,
                 CardPatch {
@@ -434,6 +435,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                     priority: p.priority,
                     due_at: p.due_at,
                     title_auto: p.title_auto,
+                    editor: Some(editor),
                 },
             )?;
             let card = st.decorate(card);
@@ -634,6 +636,19 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
 
         Method::DaemonStatus(_) => to_value(st.status()),
 
+        Method::CommentList(p) => {
+            let store = st.store.lock().unwrap();
+            store.get_card(&p.card_id)?;
+            to_value(CommentListResult { comments: store.list_comments(&p.card_id)? })
+        }
+
+        Method::CommentAdd(p) => to_value(CommentResult { comment: crate::context::add_comment(&st, &p)? }),
+
+        Method::CommentDelete(p) => {
+            crate::context::delete_comment(&st, &p.id)?;
+            to_value(Empty {})
+        }
+
         Method::CardHandoff(p) => to_value(CardResult { card: crate::context::handoff(&st, &p).await? }),
 
         Method::AgentList(_) => {
@@ -687,7 +702,22 @@ fn restrict(st: &State, me: &str, hash: &str, m: Method) -> Result<Restricted> {
         Method::CardGet(p) if linked(&p.id)? => Method::CardGet(p),
         Method::CardMove(p) if p.id == me => Method::CardMove(p),
         Method::CardHandoff(p) if p.id == me => Method::CardHandoff(p),
-        Method::CardUpdate(p) if p.id == me => {
+        // Comments: read and write on the caller's own card and on linked cards, always
+        // signed as the caller. Deleting is for the user.
+        Method::CommentList(p) => {
+            if !linked(&p.card_id)? {
+                return Err(refuse("reading comments of a card that is not linked"));
+            }
+            Method::CommentList(p)
+        }
+        Method::CommentAdd(mut p) => {
+            if !linked(&p.card_id)? {
+                return Err(refuse("commenting on a card that is not linked"));
+            }
+            p.from_card_id = Some(me.to_string());
+            Method::CommentAdd(p)
+        }
+        Method::CardUpdate(mut p) if p.id == me => {
             if p.title.is_some()
                 || p.prompt.is_some()
                 || p.priority.is_some()
@@ -696,6 +726,8 @@ fn restrict(st: &State, me: &str, hash: &str, m: Method) -> Result<Restricted> {
             {
                 return Err(refuse("changing anything but the card's notes"));
             }
+            // The notes are signed as this card's agent.
+            p.from_card_id = Some(me.to_string());
             Method::CardUpdate(p)
         }
         Method::BoardGet(p) => {

@@ -73,6 +73,8 @@ npx tauri build --debug   # Muster.app in src-tauri/target/debug/bundle/macos/
 
 ## Keys
 
+Cmd+B hides or shows the projects sidebar; in an open card, Cmd+I hides or shows the
+details column (Details and Comments tabs; Cmd+Enter posts a comment).
 Cmd+T toggles board and tracker (all projects; J/K or arrows, Enter opens).
 Board: arrows or H/J/K/L move the selection, Shift+arrows (or Shift+H/J/K/L) move the
 selected card, Enter opens, N starts a new session (pick an agent: Enter or 1..9; the last

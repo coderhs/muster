@@ -98,6 +98,35 @@ async fn card_tokens_are_scoped_to_their_card() {
     k.call("message.send", json!({"cardId": b, "text": "hi"})).await.unwrap();
     let board = k.call("board.get", json!({"projectId": pid})).await.unwrap();
     assert_eq!(board["cards"].as_array().unwrap().len(), 2, "only A and its linked card");
+    // Notes and comments are signed as card A's agent, whatever the caller claims.
+    let mine = c.call("card.get", json!({"id": a})).await.unwrap();
+    assert_eq!(
+        mine["card"]["notesEditedBy"],
+        json!({"kind": "agent", "cardId": a, "agentId": "gemini", "cardTitle": mine["card"]["title"]})
+    );
+    let own = k.call("comment.add", json!({"cardId": a, "text": "on my card"})).await.unwrap();
+    assert_eq!(own["comment"]["author"]["kind"], "agent");
+    assert_eq!(own["comment"]["author"]["cardId"], a.as_str());
+    let other = k
+        .call("comment.add", json!({"cardId": b, "text": "on\u{1b}[31m a linked card", "fromCardId": x}))
+        .await
+        .unwrap();
+    assert_eq!(other["comment"]["author"]["cardId"], a.as_str(), "fromCardId cannot be chosen");
+    assert_eq!(other["comment"]["text"], "on[31m a linked card", "control characters are dropped");
+    let ev = c.wait_event_named("comment.changed").await;
+    assert_eq!(ev["comment"]["text"], "on my card");
+    let listed = k.call("comment.list", json!({"cardId": b})).await.unwrap();
+    assert_eq!(listed["comments"].as_array().unwrap().len(), 1);
+    let read = k.call("context.read", json!({"cardId": b, "kind": "comments"})).await.unwrap();
+    assert!(read["text"].as_str().unwrap().contains(&format!("agent gemini (card {a}")), "{read}");
+    // An agent's comment flags the card for the user; the user's own does not.
+    let flagged = c.call("card.get", json!({"id": b})).await.unwrap();
+    assert_eq!((flagged["card"]["unread"].clone(), flagged["card"]["commentCount"].clone()), (json!(true), json!(1)));
+    c.call("card.markRead", json!({"id": b})).await.unwrap();
+    let user = c.call("comment.add", json!({"cardId": b, "text": "from me"})).await.unwrap();
+    assert_eq!(user["comment"]["author"], json!({"kind": "user"}));
+    assert_eq!(c.call("card.get", json!({"id": b})).await.unwrap()["card"]["unread"], false);
+    let user_id = user["comment"]["id"].as_str().unwrap().to_string();
     // Refused: unlinked reads (even claiming another sender), and everything else.
     let refused = [
         ("context.read", json!({"cardId": x, "kind": "notes"})),
@@ -107,6 +136,9 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("card.update", json!({"id": a, "title": "renamed"})),
         ("card.move", json!({"id": x, "columnId": col})),
         ("card.get", json!({"id": x})),
+        ("comment.add", json!({"cardId": x, "text": "hi"})),
+        ("comment.list", json!({"cardId": x})),
+        ("comment.delete", json!({"id": user_id})),
         ("term.write", json!({"cardId": b, "data": "id\r"})),
         ("session.attach", json!({"cardId": b, "cols": 80, "rows": 24})),
         ("session.kill", json!({"cardId": b})),
@@ -124,6 +156,14 @@ async fn card_tokens_are_scoped_to_their_card() {
         assert_eq!(e.code, ErrorCode::Unauthorized, "{m}");
     }
     assert_eq!(c.call("card.get", json!({"id": x})).await.unwrap()["card"]["notes"], "X-SECRET");
+    // The user can delete any comment; the CLI inside the session comments as the card.
+    c.call("comment.delete", json!({"id": user_id})).await.unwrap();
+    assert_eq!(c.call("comment.list", json!({"cardId": b})).await.unwrap()["comments"].as_array().unwrap().len(), 1);
+    c.call("term.write", json!({"cardId": a, "data": "cli comment add from the cli\r"})).await.unwrap();
+    c.wait_output("CLI-DONE[0]").await;
+    let mine = c.call("comment.list", json!({"cardId": a})).await.unwrap();
+    let last = mine["comments"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!((last["text"].clone(), last["author"]["cardId"].clone()), (json!("from the cli"), json!(a)));
     // The CLI inside the session uses the card token: --any does not help.
     c.call("term.write", json!({"cardId": a, "data": format!("cli context read {x} --notes --any\r")})).await.unwrap();
     c.wait_output("CLI-DONE[1]").await;
