@@ -2,7 +2,7 @@
 //! totals fetched when the pointer reaches the icon (just before the menu opens).
 
 use crate::watcher::{CardLite, Endpoint, Hooks, State, Watcher};
-use crate::{daemon, notify};
+use crate::{daemon, island, notify};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,6 +15,25 @@ use tauri::{AppHandle, Manager, Runtime};
 #[derive(Clone)]
 pub struct NotifyFlag(pub Arc<AtomicBool>);
 
+/// Whether to show the strip around the notch; shared with the get/set commands.
+#[derive(Clone)]
+pub struct IslandFlag(pub Arc<AtomicBool>);
+
+/// What the strip last showed, and the card that has needed the user longest.
+#[derive(Default)]
+pub struct IslandCounts(Mutex<(island::Counts, Option<String>)>);
+
+/// Redraws the strip from the last known counts (after the setting changed).
+pub fn refresh_island<R: Runtime>(app: &AppHandle<R>) {
+    let counts = app.state::<IslandCounts>().0.lock().unwrap().0;
+    let on = app.state::<IslandFlag>().0.load(Ordering::Relaxed);
+    let _ = app.run_on_main_thread(move || island::update(counts, on));
+}
+
+pub fn longest_waiting<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    app.state::<IslandCounts>().0.lock().unwrap().1.clone()
+}
+
 struct TrayHooks<R: Runtime> {
     app: AppHandle<R>,
     tray: Mutex<Option<TrayIcon<R>>>,
@@ -22,6 +41,15 @@ struct TrayHooks<R: Runtime> {
 
 impl<R: Runtime> Hooks for TrayHooks<R> {
     fn changed(&self, st: &State) {
+        let counts = island::Counts::of(st.cards.values().map(|c| c.status.as_str()));
+        let waiting = st
+            .cards
+            .iter()
+            .filter(|(_, c)| c.status == "needs_you")
+            .min_by_key(|(_, c)| c.status_since)
+            .map(|(id, _)| id.clone());
+        *self.app.state::<IslandCounts>().0.lock().unwrap() = (counts, waiting);
+        refresh_island(&self.app);
         let Some(tray) = self.tray.lock().unwrap().clone() else { return };
         let n = st.cards.values().filter(|c| c.status == "needs_you").count();
         let _ = tray.set_title(if n > 0 { Some(n.to_string()) } else { None::<String> });

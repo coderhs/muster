@@ -1,4 +1,5 @@
 mod daemon;
+mod island;
 mod notify;
 mod tray;
 mod watcher;
@@ -82,6 +83,48 @@ fn set_notify<R: Runtime>(app: AppHandle<R>, flag: tauri::State<tray::NotifyFlag
     std::fs::write(&path, serde_json::json!({ "enabled": on }).to_string()).map_err(|e| e.to_string())
 }
 
+fn island_file<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("island.json"))
+}
+
+fn read_enabled(path: Option<std::path::PathBuf>) -> bool {
+    path.and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["enabled"].as_bool())
+        .unwrap_or(true)
+}
+
+/// Whether the strip around the notch is switched on, and whether a display has a notch.
+#[derive(serde::Serialize)]
+struct IslandInfo {
+    enabled: bool,
+    available: bool,
+}
+
+#[tauri::command]
+async fn get_island<R: Runtime>(app: AppHandle<R>) -> Result<IslandInfo, String> {
+    let enabled = app.state::<tray::IslandFlag>().0.load(std::sync::atomic::Ordering::Relaxed);
+    // Screens may only be asked about on the main thread.
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(island::available());
+    })
+    .map_err(|e| e.to_string())?;
+    let available = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or(false);
+    Ok(IslandInfo { enabled, available })
+}
+
+#[tauri::command]
+fn set_island<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(), String> {
+    app.state::<tray::IslandFlag>().0.store(on, std::sync::atomic::Ordering::Relaxed);
+    tray::refresh_island(&app);
+    let path = island_file(&app).ok_or("no config directory")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::json!({ "enabled": on }).to_string()).map_err(|e| e.to_string())
+}
+
 /// A card the tray asked to open before the window's page was ready.
 #[derive(Default)]
 struct PendingOpen(Mutex<Option<String>>);
@@ -116,6 +159,13 @@ pub(crate) fn on_tray_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
         "show" => {
             show_main(app);
         }
+        // A click on the notch strip: the card that has waited longest, else the window.
+        "island" => match tray::longest_waiting(app) {
+            Some(card) => on_tray_menu(app, &format!("card:{card}")),
+            None => {
+                show_main(app);
+            }
+        },
         "quit" => app.exit(0),
         _ => {
             if let Some(card) = id.strip_prefix("card:") {
@@ -200,15 +250,21 @@ pub fn run() {
             take_pending_open,
             get_notify,
             set_notify,
-            notify_status
+            notify_status,
+            get_island,
+            set_island
         ])
         .setup(|app| {
-            let enabled = notify_file(app.handle())
-                .and_then(|p| std::fs::read_to_string(p).ok())
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                .and_then(|v| v["enabled"].as_bool())
-                .unwrap_or(true);
+            let enabled = read_enabled(notify_file(app.handle()));
             app.manage(tray::NotifyFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled))));
+            let island_on = read_enabled(island_file(app.handle()));
+            app.manage(tray::IslandFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(island_on))));
+            app.manage(tray::IslandCounts::default());
+            let handle = app.handle().clone();
+            island::init(move || {
+                let h = handle.clone();
+                let _ = handle.run_on_main_thread(move || on_tray_menu(&h, "island"));
+            });
             let handle = app.handle().clone();
             notify::init(move |card| {
                 let h = handle.clone();

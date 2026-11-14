@@ -75,6 +75,12 @@ The tracker groups all cards across the board into Needs you, Finished, Running 
 Idle, each with a timer: how long it has waited for you, or how long since it last
 did anything. The menu-bar icon shows the number of cards that need you.
 
+On a MacBook with a camera notch, Muster also draws a small black strip around the
+notch: a green count of cards that are working on the left and an orange count of
+cards that need you on the right. The strip is hidden when both are zero and on
+displays without a notch. Clicking it opens the card that has waited longest, or the
+Muster window when none is waiting. Switch it off in Settings → Notifications.
+
 Also shown:
 
 - **Agents and limits**: one line per agent tool you have installed, saying whether it

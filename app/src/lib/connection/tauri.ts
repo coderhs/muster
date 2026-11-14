@@ -19,6 +19,8 @@ export function tauriPlatform(): Platform {
     startDaemon: () => invoke<string>("start_daemon"),
     getNotify: () => invoke<boolean>("get_notify"),
     setNotify: (on) => invoke<void>("set_notify", { on }),
+    getIsland: () => invoke<{ enabled: boolean; available: boolean }>("get_island"),
+    setIsland: (on) => invoke<void>("set_island", { on }),
     notifyStatus: () => invoke<string>("notify_status"),
     async onOpenCard(cb) {
       const { listen } = await import("@tauri-apps/api/event");

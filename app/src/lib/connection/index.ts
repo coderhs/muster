@@ -19,6 +19,9 @@ export interface Platform {
   /** Desktop notifications for needs-you / done (posted by the shell, even with the window closed). */
   getNotify?: () => Promise<boolean>;
   setNotify?: (on: boolean) => Promise<void>;
+  /** The strip around the display's notch that shows working and waiting cards. */
+  getIsland?: () => Promise<{ enabled: boolean; available: boolean }>;
+  setIsland?: (on: boolean) => Promise<void>;
   /** "unavailable" | "unknown" | "requesting" | "granted" | "denied" */
   notifyStatus?: () => Promise<string>;
 }
