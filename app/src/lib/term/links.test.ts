@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOpenChord, webUrl } from "./links";
+import { isOpenChord, pathsForPaste, webUrl } from "./links";
 
 describe("webUrl", () => {
   it("accepts http and https", () => {
@@ -19,5 +19,17 @@ describe("isOpenChord", () => {
     expect(isOpenChord({ metaKey: false, ctrlKey: true }, true)).toBe(false);
     expect(isOpenChord({ metaKey: false, ctrlKey: true }, false)).toBe(true);
     expect(isOpenChord({ metaKey: false, ctrlKey: false }, false)).toBe(false);
+  });
+});
+
+describe("pathsForPaste", () => {
+  it("escapes spaces and shell characters, and joins with spaces", () => {
+    expect(pathsForPaste(["/Users/me/Desktop/Screenshot 2026-11-14 at 6.53.33 PM.png"])).toBe(
+      "/Users/me/Desktop/Screenshot\\ 2026-11-14\\ at\\ 6.53.33\\ PM.png",
+    );
+    expect(pathsForPaste(["/a/b.txt", "/c/it's (1).md"])).toBe("/a/b.txt /c/it\\'s\\ \\(1\\).md");
+  });
+  it("keeps letters of any script", () => {
+    expect(pathsForPaste(["/tmp/മെനു.pdf"])).toBe("/tmp/മെനു.pdf");
   });
 });

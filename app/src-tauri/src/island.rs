@@ -120,6 +120,12 @@ pub fn available() -> bool {
     imp::available()
 }
 
+/// Paths of the files currently on the clipboard, in order. Empty when it holds
+/// something else (text, or image data that is not a file).
+pub fn clipboard_files() -> Vec<String> {
+    imp::clipboard_files()
+}
+
 /// Brings this app in front of the others. Main thread only.
 pub fn activate_app() {
     imp::activate_app();
@@ -233,6 +239,22 @@ mod imp {
             }
         }
         None
+    }
+
+    pub fn clipboard_files() -> Vec<String> {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
+        use objc2_foundation::NSURL;
+        let board = NSPasteboard::generalPasteboard();
+        let Some(items) = board.pasteboardItems() else { return Vec::new() };
+        let mut paths = Vec::new();
+        for item in items.iter() {
+            let Some(url) = item.stringForType(unsafe { NSPasteboardTypeFileURL }) else { continue };
+            // Finder gives file reference URLs; `path` resolves them.
+            if let Some(path) = NSURL::URLWithString(&url).and_then(|u| u.path()) {
+                paths.push(path.to_string());
+            }
+        }
+        paths
     }
 
     pub fn activate_app() {
@@ -447,6 +469,9 @@ mod imp {
         false
     }
     pub fn activate_app() {}
+    pub fn clipboard_files() -> Vec<String> {
+        Vec::new()
+    }
     pub fn update(_: Vec<Row>, _: bool) {}
 }
 

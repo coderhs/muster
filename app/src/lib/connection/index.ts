@@ -14,6 +14,8 @@ export interface Platform {
   onOpenCard?: (cb: (cardId: string) => void) => void;
   /** Open a web link in the user's browser. */
   openUrl(url: string): Promise<void>;
+  /** Paths of files on the clipboard (copied in the Finder), when the host can tell. */
+  clipboardFiles?: () => Promise<string[]>;
   /** Start the daemon on request (the desktop shell can; a browser cannot). */
   startDaemon?: () => Promise<string>;
   /** Desktop notifications for needs-you / done (posted by the shell, even with the window closed). */

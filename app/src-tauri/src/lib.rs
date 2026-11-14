@@ -31,6 +31,13 @@ fn open_url(url: String) -> Result<(), String> {
     std::process::Command::new(opener).arg(&url).spawn().map(|_| ()).map_err(|e| format!("{opener}: {e}"))
 }
 
+/// Paths of the files on the clipboard (copied in the Finder), so a paste into a
+/// terminal can insert where they are instead of nothing.
+#[tauri::command]
+fn clipboard_files() -> Vec<String> {
+    island::clipboard_files()
+}
+
 fn is_web_url(url: &str) -> bool {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
     rest.is_some_and(|r| !r.is_empty() && !r.starts_with('-')) && !url.chars().any(|c| c.is_control() || c == ' ')
@@ -242,6 +249,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             daemon_info,
             open_url,
+            clipboard_files,
             start_daemon,
             take_pending_open,
             get_notify,

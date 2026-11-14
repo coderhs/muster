@@ -10,7 +10,7 @@ import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
 import { isNewlineChord } from "./keys";
-import { isOpenChord, webUrl } from "./links";
+import { isOpenChord, pathsForPaste, webUrl } from "./links";
 
 const DARK: ITheme = {
   background: "#18181a",
@@ -68,6 +68,8 @@ export interface TermCallbacks {
   onSize?: (cols: number, rows: number) => void;
   /** Open a web link the user Cmd+clicked. Already checked to be http(s). */
   openUrl?: (url: string) => void;
+  /** Paths of the files on the clipboard, when the host can tell. */
+  clipboardFiles?: () => Promise<string[]>;
 }
 
 export interface TermSession {
@@ -221,6 +223,22 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     return true;
   });
 
+  // A file copied in the Finder pastes as its path, so an agent can open it. The page
+  // only gets the file's contents, not where it is; the host knows. Anything else on
+  // the clipboard (text, a copied image) pastes as before.
+  const onPaste = (ev: ClipboardEvent) => {
+    if (!cb.clipboardFiles || !ev.clipboardData?.types.includes("Files")) return;
+    const text = ev.clipboardData.getData("text/plain");
+    ev.preventDefault();
+    ev.stopPropagation();
+    cb.clipboardFiles()
+      .catch(() => [] as string[])
+      .then((paths) => {
+        if (!disposed) term.paste(paths.length ? pathsForPaste(paths) : text);
+      });
+  };
+  host.addEventListener("paste", onPaste, true);
+
   let resizeTimer: ReturnType<typeof setTimeout> | null = null;
   const onResize = () => {
     if (resizeTimer) clearTimeout(resizeTimer);
@@ -266,6 +284,7 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
       disposed = true;
       if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
+      host.removeEventListener("paste", onPaste, true);
       mq?.removeEventListener("change", onScheme);
       for (const off of offs) off();
       dataSub.dispose();

@@ -16,6 +16,7 @@ export function tauriPlatform(): Platform {
       return { url: info.url, token: info.token };
     },
     openUrl: (url) => invoke<void>("open_url", { url }),
+    clipboardFiles: () => invoke<string[]>("clipboard_files"),
     startDaemon: () => invoke<string>("start_daemon"),
     getNotify: () => invoke<boolean>("get_notify"),
     setNotify: (on) => invoke<void>("set_notify", { on }),
