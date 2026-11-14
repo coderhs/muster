@@ -1,44 +1,67 @@
 //! A small black strip around the display's camera notch. Left of the notch: how many
 //! cards are working. Right of it: how many need the user, and how many have finished
-//! and not been opened since (opening the card clears it). It is a native panel, not a webview, so it
-//! costs almost nothing while idle. It is hidden when there is nothing to show, when
-//! switched off in Settings, and on displays without a notch.
+//! and not been opened since (opening the card clears it). Under the pointer it grows
+//! into a list of those cards by name; a click on a name opens that card.
+//!
+//! It is a native panel, not a webview, so it costs almost nothing while idle. It is
+//! hidden when there is nothing to show, when switched off in Settings, and on
+//! displays without a notch.
 
 use std::sync::OnceLock;
 
-/// What the strip shows.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Counts {
-    pub running: usize,
-    pub needs_you: usize,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    NeedsYou,
     /// Finished and not opened since.
-    pub done: usize,
+    Done,
+    Working,
 }
 
-impl Counts {
-    /// From each card's status and unread flag.
-    pub fn of<'a>(cards: impl Iterator<Item = (&'a str, bool)>) -> Counts {
-        let mut c = Counts::default();
-        for card in cards {
-            match card {
-                ("running", _) => c.running += 1,
-                ("needs_you", _) => c.needs_you += 1,
-                ("done", true) => c.done += 1,
-                _ => {}
-            }
-        }
-        c
-    }
+/// One card worth showing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub id: String,
+    pub title: String,
+    pub kind: Kind,
+}
 
-    pub fn is_empty(self) -> bool {
-        self.running == 0 && self.needs_you == 0 && self.done == 0
+/// At most this many names in the list; the rest are summed up in a last line.
+pub const MAX_ROWS: usize = 8;
+
+/// What a card with this status and unread flag shows as, if anything.
+pub fn kind_of(status: &str, unread: bool) -> Option<Kind> {
+    match (status, unread) {
+        ("needs_you", _) => Some(Kind::NeedsYou),
+        ("done", true) => Some(Kind::Done),
+        ("running", _) => Some(Kind::Working),
+        _ => None,
     }
 }
 
-static ON_CLICK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+/// Rows in the order shown: waiting longest first, then finished latest first, then
+/// working. `cards` yields id, title, status, unread and the time of the last status
+/// change.
+pub fn rows<'a>(cards: impl Iterator<Item = (&'a str, &'a str, &'a str, bool, i64)>) -> Vec<Row> {
+    let mut all: Vec<(Kind, i64, Row)> = cards
+        .filter_map(|(id, title, status, unread, since)| {
+            let kind = kind_of(status, unread)?;
+            // Finished cards newest first; the others oldest first.
+            let key = if kind == Kind::Done { -since } else { since };
+            Some((kind, key, Row { id: id.into(), title: title.into(), kind }))
+        })
+        .collect();
+    all.sort_by(|a, b| (a.0, a.1, &a.2.id).cmp(&(b.0, b.1, &b.2.id)));
+    all.into_iter().map(|(_, _, r)| r).collect()
+}
 
-/// Installs the handler for a click on the strip.
-pub fn init(on_click: impl Fn() + Send + Sync + 'static) {
+fn count(rows: &[Row], kind: Kind) -> usize {
+    rows.iter().filter(|r| r.kind == kind).count()
+}
+
+static ON_CLICK: OnceLock<Box<dyn Fn(Option<String>) + Send + Sync>> = OnceLock::new();
+
+/// Installs the handler for a click: on a card's name (its id), or on the strip itself.
+pub fn init(on_click: impl Fn(Option<String>) + Send + Sync + 'static) {
     let _ = ON_CLICK.set(Box::new(on_click));
 }
 
@@ -48,26 +71,30 @@ pub fn available() -> bool {
 }
 
 /// Shows, updates or hides the strip. Main thread only.
-pub fn update(counts: Counts, enabled: bool) {
-    imp::update(counts, enabled);
+pub fn update(rows: Vec<Row>, enabled: bool) {
+    imp::update(rows, enabled);
 }
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::{Counts, ON_CLICK};
+    use super::{count, Kind, Row, MAX_ROWS, ON_CLICK};
     use objc2::rc::Retained;
-    use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
+    use objc2::{define_class, msg_send, AllocAnyThread, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{
-        NSBackingStoreType, NSBezierPath, NSColor, NSEvent, NSFont, NSFontWeightSemibold, NSPanel, NSScreen,
-        NSTextAlignment, NSTextField, NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
+        NSBackingStoreType, NSBezierPath, NSColor, NSEvent, NSFont, NSFontWeightMedium, NSFontWeightSemibold,
+        NSLineBreakMode, NSPanel, NSScreen, NSTextAlignment, NSTextField, NSTrackingArea, NSTrackingAreaOptions,
+        NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use std::cell::RefCell;
 
-    /// Width of the strip on each side of the notch; the right side doubles when it
-    /// shows both waiting and finished cards.
-    const EAR: f64 = 46.0;
-    const RADIUS: f64 = 9.0;
+    /// Width of one count beside the notch, kept as narrow as a dot and a digit allow.
+    const SLOT: f64 = 22.0;
+    const RADIUS: f64 = 8.0;
+    /// The list of names under the pointer.
+    const LIST_W: f64 = 260.0;
+    const ROW_H: f64 = 20.0;
+    const LIST_PAD: f64 = 6.0;
     /// Above the menu bar (24) and status items (25).
     const LEVEL: isize = 27;
 
@@ -87,61 +114,102 @@ mod imp {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(r, RADIUS, RADIUS).fill();
             }
 
+            #[unsafe(method(mouseEntered:))]
+            fn mouse_entered(&self, _ev: &NSEvent) {
+                set_expanded(true);
+            }
+
+            #[unsafe(method(mouseExited:))]
+            fn mouse_exited(&self, _ev: &NSEvent) {
+                set_expanded(false);
+            }
+
             #[unsafe(method(mouseDown:))]
-            fn mouse_down(&self, _ev: &NSEvent) {
+            fn mouse_down(&self, ev: &NSEvent) {
+                let y = ev.locationInWindow().y;
+                let card = STRIP.with_borrow(|s| s.as_ref().and_then(|s| s.card_at(y)));
                 if let Some(f) = ON_CLICK.get() {
-                    f();
+                    f(card);
                 }
             }
         }
     );
 
+    /// Where the notch is, in screen coordinates.
+    #[derive(Clone, Copy, PartialEq)]
+    struct Notch {
+        x: f64,
+        w: f64,
+        /// Height of the notch (and of the menu bar beside it).
+        h: f64,
+        /// The top edge of the display.
+        top: f64,
+    }
+
     struct Strip {
         panel: Retained<NSPanel>,
+        view: Retained<StripView>,
         running: Retained<NSTextField>,
         needs: Retained<NSTextField>,
         done: Retained<NSTextField>,
-        shown: Option<(Counts, NSRect)>,
+        names: Vec<Retained<NSTextField>>,
+        rows: Vec<Row>,
+        enabled: bool,
+        expanded: bool,
+        /// Height of the list part when expanded, for hit testing.
+        list_h: f64,
     }
 
     thread_local! {
         static STRIP: RefCell<Option<Strip>> = const { RefCell::new(None) };
     }
 
-    /// The strip's frame on the first display with a notch: the notch plus an ear on
-    /// each side, as tall as the notch.
-    fn notch_frame(mtm: MainThreadMarker, right: f64) -> Option<NSRect> {
+    fn notch(mtm: MainThreadMarker) -> Option<Notch> {
         for screen in NSScreen::screens(mtm).iter() {
-            let top = screen.safeAreaInsets().top;
-            if top <= 0.0 {
+            let h = screen.safeAreaInsets().top;
+            if h <= 0.0 {
                 continue;
             }
             let f = screen.frame();
             let (l, r) = (screen.auxiliaryTopLeftArea(), screen.auxiliaryTopRightArea());
-            let notch = f.size.width - l.size.width - r.size.width;
-            if notch <= 0.0 {
-                continue;
+            let w = f.size.width - l.size.width - r.size.width;
+            if w > 0.0 {
+                return Some(Notch { x: f.origin.x + l.size.width, w, h, top: f.origin.y + f.size.height });
             }
-            let w = notch + EAR + right;
-            let x = f.origin.x + l.size.width - EAR;
-            return Some(NSRect::new(NSPoint::new(x, f.origin.y + f.size.height - top), NSSize::new(w, top)));
         }
         None
     }
 
     pub fn available() -> bool {
-        MainThreadMarker::new().is_some_and(|mtm| notch_frame(mtm, EAR).is_some())
+        MainThreadMarker::new().is_some_and(|mtm| notch(mtm).is_some())
     }
 
-    fn label(mtm: MainThreadMarker, color: &NSColor, align: NSTextAlignment) -> Retained<NSTextField> {
+    fn label(mtm: MainThreadMarker, color: &NSColor, size: f64, align: NSTextAlignment) -> Retained<NSTextField> {
         let l = NSTextField::labelWithString(&NSString::new(), mtm);
         l.setTextColor(Some(color));
-        l.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(11.0, unsafe { NSFontWeightSemibold })));
+        let weight = unsafe {
+            if size < 11.0 {
+                NSFontWeightSemibold
+            } else {
+                NSFontWeightMedium
+            }
+        };
+        l.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(size, weight)));
         l.setAlignment(align);
+        l.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
         l
     }
 
-    fn build(mtm: MainThreadMarker, frame: NSRect) -> Strip {
+    fn color(kind: Kind) -> Retained<NSColor> {
+        match kind {
+            Kind::NeedsYou => NSColor::systemOrangeColor(),
+            Kind::Done => NSColor::systemGreenColor(),
+            Kind::Working => NSColor::whiteColor(),
+        }
+    }
+
+    fn build(mtm: MainThreadMarker) -> Strip {
+        let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(10.0, 10.0));
         let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
         let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
             NSPanel::alloc(mtm),
@@ -164,97 +232,188 @@ mod imp {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
         let view: Retained<StripView> = unsafe { msg_send![StripView::alloc(mtm), initWithFrame: frame] };
-        let running = label(mtm, &NSColor::whiteColor(), NSTextAlignment::Left);
-        let needs = label(mtm, &NSColor::systemOrangeColor(), NSTextAlignment::Right);
-        let done = label(mtm, &NSColor::systemGreenColor(), NSTextAlignment::Right);
+        // Follows the view as it grows and shrinks; works while another app is in front.
+        let tracking = unsafe {
+            NSTrackingArea::initWithRect_options_owner_userInfo(
+                NSTrackingArea::alloc(),
+                frame,
+                NSTrackingAreaOptions::MouseEnteredAndExited
+                    | NSTrackingAreaOptions::ActiveAlways
+                    | NSTrackingAreaOptions::InVisibleRect,
+                Some(&view),
+                None,
+            )
+        };
+        view.addTrackingArea(&tracking);
+        let running = label(mtm, &color(Kind::Working), 10.0, NSTextAlignment::Center);
+        let needs = label(mtm, &color(Kind::NeedsYou), 10.0, NSTextAlignment::Center);
+        let done = label(mtm, &color(Kind::Done), 10.0, NSTextAlignment::Center);
         view.addSubview(&running);
         view.addSubview(&needs);
         view.addSubview(&done);
         panel.setContentView(Some(&view));
-        Strip { panel, running, needs, done, shown: None }
+        Strip {
+            panel,
+            view,
+            running,
+            needs,
+            done,
+            names: Vec::new(),
+            rows: Vec::new(),
+            enabled: false,
+            expanded: false,
+            list_h: 0.0,
+        }
     }
 
-    pub fn update(counts: Counts, enabled: bool) {
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        STRIP.with_borrow_mut(|slot| {
-            let right = if counts.needs_you > 0 && counts.done > 0 { 2.0 * EAR - 10.0 } else { EAR };
-            let frame = if enabled && !counts.is_empty() { notch_frame(mtm, right) } else { None };
-            let Some(frame) = frame else {
-                if let Some(s) = slot.as_mut() {
-                    s.panel.orderOut(None);
-                    s.shown = None;
+    impl Strip {
+        /// The card whose name is at window height `y`, if the list is open there.
+        fn card_at(&self, y: f64) -> Option<String> {
+            if !self.expanded || y >= self.list_h {
+                return None;
+            }
+            let i = ((self.list_h - LIST_PAD / 2.0 - y) / ROW_H).floor();
+            if i < 0.0 {
+                return None;
+            }
+            self.rows.get(i as usize).filter(|_| (i as usize) < MAX_ROWS).map(|r| r.id.clone())
+        }
+
+        fn layout(&mut self, mtm: MainThreadMarker) {
+            let notch = if self.enabled && !self.rows.is_empty() { notch(mtm) } else { None };
+            let Some(n) = notch else {
+                self.expanded = false;
+                self.panel.orderOut(None);
+                return;
+            };
+            let (working, needs, done) =
+                (count(&self.rows, Kind::Working), count(&self.rows, Kind::NeedsYou), count(&self.rows, Kind::Done));
+            let slots = |k: usize| if k > 0 { SLOT } else { 0.0 };
+            let (left, right) = (slots(working), slots(needs) + slots(done));
+
+            // Collapsed: the notch plus only the counts that have something to say.
+            let (mut x0, mut x1) = (n.x - left, n.x + n.w + right);
+            let shown = self.rows.len().min(MAX_ROWS);
+            let more = self.rows.len() - shown;
+            self.list_h = if self.expanded { (shown + usize::from(more > 0)) as f64 * ROW_H + LIST_PAD } else { 0.0 };
+            if self.expanded {
+                let mid = n.x + n.w / 2.0;
+                x0 = x0.min(mid - LIST_W / 2.0);
+                x1 = x1.max(mid + LIST_W / 2.0);
+            }
+            let h = n.h + self.list_h;
+            let frame = NSRect::new(NSPoint::new(x0, n.top - h), NSSize::new(x1 - x0, h));
+
+            let set = |l: &NSTextField, k: usize, text: String, x: f64| {
+                l.setStringValue(&NSString::from_str(if k > 0 { &text } else { "" }));
+                let line = 13.0;
+                let y = self.list_h + ((n.h - line) / 2.0).floor();
+                l.setFrame(NSRect::new(NSPoint::new(x - x0, y), NSSize::new(SLOT, line)));
+            };
+            set(&self.running, working, format!("●{working}"), n.x - SLOT);
+            // Waiting cards sit next to the notch, finished ones outside them.
+            set(&self.needs, needs, format!("●{needs}"), n.x + n.w);
+            set(&self.done, done, format!("✓{done}"), n.x + n.w + slots(needs));
+
+            for l in self.names.drain(..) {
+                l.removeFromSuperview();
+            }
+            if self.expanded {
+                let mut line = |i: usize, text: String, c: &NSColor| {
+                    let l = label(mtm, c, 12.0, NSTextAlignment::Left);
+                    l.setStringValue(&NSString::from_str(&text));
+                    let y = self.list_h - LIST_PAD / 2.0 - (i + 1) as f64 * ROW_H + 2.0;
+                    l.setFrame(NSRect::new(NSPoint::new(12.0, y), NSSize::new(x1 - x0 - 24.0, ROW_H - 4.0)));
+                    self.view.addSubview(&l);
+                    self.names.push(l);
+                };
+                for (i, r) in self.rows.iter().take(shown).enumerate() {
+                    let mark = match r.kind {
+                        Kind::NeedsYou => "●  Needs you",
+                        Kind::Done => "✓  Finished",
+                        Kind::Working => "●  Working",
+                    };
+                    line(i, format!("{mark} · {}", r.title), &color(r.kind));
                 }
-                return;
-            };
-            let s = slot.get_or_insert_with(|| build(mtm, frame));
-            if s.shown == Some((counts, frame)) {
+                if more > 0 {
+                    line(shown, format!("and {more} more"), &NSColor::grayColor());
+                }
+            }
+            self.panel.setFrame_display(frame, true);
+            self.view.setNeedsDisplay(true);
+            self.panel.orderFrontRegardless();
+        }
+    }
+
+    fn set_expanded(on: bool) {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        STRIP.with(|cell| {
+            // Never re-entered in practice; skip rather than panic if it ever is.
+            let Ok(mut slot) = cell.try_borrow_mut() else { return };
+            if let Some(s) = slot.as_mut() {
+                if s.expanded != on {
+                    s.expanded = on;
+                    s.layout(mtm);
+                }
+            }
+        });
+    }
+
+    pub fn update(rows: Vec<Row>, enabled: bool) {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        STRIP.with(|cell| {
+            let Ok(mut slot) = cell.try_borrow_mut() else { return };
+            if slot.is_none() && (!enabled || rows.is_empty()) {
                 return;
             }
-            let set = |l: &NSTextField, text: String, tip: String| {
-                l.setStringValue(&NSString::from_str(&text));
-                l.setToolTip(Some(&NSString::from_str(&tip)));
-            };
-            let show = |n: usize, text: String| if n > 0 { text } else { String::new() };
-            set(
-                &s.running,
-                show(counts.running, format!("● {}", counts.running)),
-                format!("{} working", counts.running),
-            );
-            set(
-                &s.needs,
-                show(counts.needs_you, format!("{} ●", counts.needs_you)),
-                format!("{} need you", counts.needs_you),
-            );
-            set(&s.done, show(counts.done, format!("{} ✓", counts.done)), format!("{} finished", counts.done));
-            // Text sits beside the notch, vertically centred. On the right, finished
-            // cards are outermost and waiting ones (when both show) next to the notch.
-            let (h, w, pad, line) = (frame.size.height, frame.size.width, 9.0, 15.0);
-            let y = ((h - line) / 2.0).floor();
-            let slot_w = EAR - pad;
-            s.running.setFrame(NSRect::new(NSPoint::new(pad, y), NSSize::new(slot_w, line)));
-            let outer = NSRect::new(NSPoint::new(w - pad - slot_w, y), NSSize::new(slot_w, line));
-            let inner = NSRect::new(NSPoint::new(w - right, y), NSSize::new(slot_w, line));
-            if counts.needs_you > 0 && counts.done > 0 {
-                s.needs.setFrame(inner);
-                s.done.setFrame(outer);
-            } else {
-                s.needs.setFrame(outer);
-                s.done.setFrame(outer);
+            let s = slot.get_or_insert_with(|| build(mtm));
+            if s.rows == rows && s.enabled == enabled {
+                return;
             }
-            s.panel.setFrame_display(frame, true);
-            s.panel.orderFrontRegardless();
-            s.shown = Some((counts, frame));
+            s.rows = rows;
+            s.enabled = enabled;
+            s.layout(mtm);
         });
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
-    use super::Counts;
+    use super::Row;
     pub fn available() -> bool {
         false
     }
-    pub fn update(_: Counts, _: bool) {}
+    pub fn update(_: Vec<Row>, _: bool) {}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Counts;
+    use super::*;
 
     #[test]
-    fn counts_working_and_waiting_cards() {
+    fn rows_are_waiting_then_finished_then_working() {
         let cards = [
-            ("running", false),
-            ("idle", false),
-            ("needs_you", true),
-            ("running", true),
-            ("done", true),
-            ("exited", false),
+            ("a", "Build", "running", false, 50),
+            ("b", "Idle one", "idle", false, 10),
+            ("c", "Asked late", "needs_you", true, 40),
+            ("d", "Asked early", "needs_you", true, 20),
+            ("e", "Done early", "done", true, 30),
+            ("f", "Done late", "done", true, 60),
+            ("g", "Done and read", "done", false, 70),
+            ("h", "Gone", "exited", false, 80),
         ];
-        let c = Counts::of(cards.into_iter());
-        assert_eq!(c, Counts { running: 2, needs_you: 1, done: 1 });
-        assert!(!c.is_empty());
-        // A finished card the user has opened no longer shows.
-        assert!(Counts::of([("idle", false), ("done", false)].into_iter()).is_empty());
+        let got = rows(cards.into_iter());
+        let ids: Vec<&str> = got.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["d", "c", "f", "e", "a"]);
+        assert_eq!(count(&got, Kind::NeedsYou), 2);
+        assert_eq!(count(&got, Kind::Done), 2);
+        assert_eq!(count(&got, Kind::Working), 1);
+    }
+
+    #[test]
+    fn a_finished_card_shows_only_until_opened() {
+        assert_eq!(kind_of("done", true), Some(Kind::Done));
+        assert_eq!(kind_of("done", false), None);
+        assert_eq!(kind_of("idle", true), None);
     }
 }

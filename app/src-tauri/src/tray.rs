@@ -19,19 +19,22 @@ pub struct NotifyFlag(pub Arc<AtomicBool>);
 #[derive(Clone)]
 pub struct IslandFlag(pub Arc<AtomicBool>);
 
-/// What the strip last showed, and the card a click on it opens.
+/// The cards the strip last showed.
 #[derive(Default)]
-pub struct IslandCounts(Mutex<(island::Counts, Option<String>)>);
+pub struct IslandRows(Mutex<Vec<island::Row>>);
 
-/// Redraws the strip from the last known counts (after the setting changed).
+/// Redraws the strip from the last known cards (after the setting changed).
 pub fn refresh_island<R: Runtime>(app: &AppHandle<R>) {
-    let counts = app.state::<IslandCounts>().0.lock().unwrap().0;
+    let rows = app.state::<IslandRows>().0.lock().unwrap().clone();
     let on = app.state::<IslandFlag>().0.load(Ordering::Relaxed);
-    let _ = app.run_on_main_thread(move || island::update(counts, on));
+    let _ = app.run_on_main_thread(move || island::update(rows, on));
 }
 
-pub fn longest_waiting<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    app.state::<IslandCounts>().0.lock().unwrap().1.clone()
+/// The card a click on the strip itself opens: one that waits or has finished.
+pub fn island_default<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let state = app.state::<IslandRows>();
+    let rows = state.0.lock().unwrap();
+    rows.first().filter(|r| r.kind != island::Kind::Working).map(|r| r.id.clone())
 }
 
 struct TrayHooks<R: Runtime> {
@@ -41,13 +44,10 @@ struct TrayHooks<R: Runtime> {
 
 impl<R: Runtime> Hooks for TrayHooks<R> {
     fn changed(&self, st: &State) {
-        let counts = island::Counts::of(st.cards.values().map(|c| (c.status.as_str(), c.unread)));
-        // A click goes to the card that has waited longest, else the latest finished one.
-        let waiting = st.cards.iter().filter(|(_, c)| c.status == "needs_you").min_by_key(|(_, c)| c.status_since);
-        let finished =
-            st.cards.iter().filter(|(_, c)| c.status == "done" && c.unread).max_by_key(|(_, c)| c.status_since);
-        let waiting = waiting.or(finished).map(|(id, _)| id.clone());
-        *self.app.state::<IslandCounts>().0.lock().unwrap() = (counts, waiting);
+        let rows = island::rows(
+            st.cards.iter().map(|(id, c)| (id.as_str(), c.title.as_str(), c.status.as_str(), c.unread, c.status_since)),
+        );
+        *self.app.state::<IslandRows>().0.lock().unwrap() = rows;
         refresh_island(&self.app);
         let Some(tray) = self.tray.lock().unwrap().clone() else { return };
         let n = st.cards.values().filter(|c| c.status == "needs_you").count();

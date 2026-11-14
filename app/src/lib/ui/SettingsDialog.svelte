@@ -125,7 +125,7 @@
           <input type="checkbox" checked={island.enabled} onchange={(e) => setIsland((e.currentTarget as HTMLInputElement).checked)} />
           <span>
             <b>Show working and finished cards around the notch</b>
-            <small>Beside the camera notch: cards that are working on the left; cards that need you (orange) and cards that have finished (green tick) on the right. A finished card clears once you open it. Clicking the strip opens a waiting or finished card.</small>
+            <small>Beside the camera notch: cards that are working on the left; cards that need you (orange) and cards that have finished (green tick) on the right. A finished card clears once you open it. Point at the strip to see the cards by name, and click a name to open that card.</small>
           </span>
         </label>
         {#if !island.available}

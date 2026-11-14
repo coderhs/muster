@@ -160,7 +160,7 @@ pub(crate) fn on_tray_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             show_main(app);
         }
         // A click on the notch strip: a waiting or finished card, else the window.
-        "island" => match tray::longest_waiting(app) {
+        "island" => match tray::island_default(app) {
             Some(card) => on_tray_menu(app, &format!("card:{card}")),
             None => {
                 show_main(app);
@@ -259,11 +259,12 @@ pub fn run() {
             app.manage(tray::NotifyFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled))));
             let island_on = read_enabled(island_file(app.handle()));
             app.manage(tray::IslandFlag(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(island_on))));
-            app.manage(tray::IslandCounts::default());
+            app.manage(tray::IslandRows::default());
             let handle = app.handle().clone();
-            island::init(move || {
+            island::init(move |card| {
                 let h = handle.clone();
-                let _ = handle.run_on_main_thread(move || on_tray_menu(&h, "island"));
+                let id = card.map_or("island".to_string(), |c| format!("card:{c}"));
+                let _ = handle.run_on_main_thread(move || on_tray_menu(&h, &id));
             });
             let handle = app.handle().clone();
             notify::init(move |card| {

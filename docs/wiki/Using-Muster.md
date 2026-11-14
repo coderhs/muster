@@ -79,9 +79,8 @@ On a MacBook with a camera notch, Muster also draws a small black strip around t
 notch. Left of the notch is the number of cards that are working. Right of it are the
 cards that need you (orange) and the cards that have finished and that you have not
 opened since (green tick); opening a finished card clears it. The strip is hidden when
-there is nothing to show and on displays without a notch. Clicking it opens the card
-that has waited longest for you, else the card that finished last, else the Muster
-window. Switch it off in Settings → Notifications.
+there is nothing to show and on displays without a notch. Point at the strip and it
+grows into a list of those cards by name; click a name to open that card. Switch it off in Settings → Notifications.
 
 Also shown:
 
