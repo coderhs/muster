@@ -120,6 +120,11 @@ pub fn available() -> bool {
     imp::available()
 }
 
+/// Brings this app in front of the others. Main thread only.
+pub fn activate_app() {
+    imp::activate_app();
+}
+
 /// Shows, updates or hides the strip. Main thread only.
 pub fn update(rows: Vec<Row>, enabled: bool) {
     imp::update(rows, enabled);
@@ -228,6 +233,13 @@ mod imp {
             }
         }
         None
+    }
+
+    pub fn activate_app() {
+        if let Some(mtm) = MainThreadMarker::new() {
+            #[allow(deprecated)]
+            objc2_app_kit::NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+        }
     }
 
     pub fn available() -> bool {
@@ -434,6 +446,7 @@ mod imp {
     pub fn available() -> bool {
         false
     }
+    pub fn activate_app() {}
     pub fn update(_: Vec<Row>, _: bool) {}
 }
 

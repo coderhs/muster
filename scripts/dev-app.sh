@@ -16,6 +16,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 for v in $(env | sed -n 's/^\(MUSTER_[A-Z_]*\)=.*/\1/p'); do
   case "$v" in MUSTER_DEV_HOME|MUSTER_DEV_SOCKET) ;; *) unset "$v" ;; esac
 done
+# Likewise anything an agent session set for its children: a card that inherits it
+# takes itself for a child of that session.
+for v in $(env | sed -E -n 's/^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|AI_AGENT|CLAUDE_CODE_[A-Z_]*)=.*/\1/p'); do
+  unset "$v"
+done
 unset TMUX TMUX_PANE || true
 export MUSTER_HOME="${MUSTER_DEV_HOME:-$HOME/.muster-dev}"
 export MUSTER_TMUX_SOCKET="${MUSTER_DEV_SOCKET:-muster-dev}"

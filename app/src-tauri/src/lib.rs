@@ -136,6 +136,9 @@ fn take_pending_open(pending: tauri::State<PendingOpen>) -> Option<String> {
 
 /// Shows the main window, recreating it (and its webview) if it was closed.
 fn show_main<R: Runtime>(app: &AppHandle<R>) -> bool {
+    // A click on the notch strip or a notification arrives while another app is in
+    // front; focusing the window alone would leave Muster behind it.
+    island::activate_app();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
