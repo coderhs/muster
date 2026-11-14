@@ -810,12 +810,11 @@ async fn restore_after_tmux_dies() {
 }
 
 fn cli(env: &Env, me: Option<&str>, args: &[&str]) -> (bool, String) {
-    let mut cmd = Command::new(cli_bin());
+    let mut cmd = muster_command(cli_bin());
     cmd.env("MUSTER_HOME", &env.home).args(args);
-    match me {
-        Some(m) => cmd.env("MUSTER_CARD_ID", m),
-        None => cmd.env_remove("MUSTER_CARD_ID"),
-    };
+    if let Some(m) = me {
+        cmd.env("MUSTER_CARD_ID", m);
+    }
     let out = cmd.output().unwrap();
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     (out.status.success(), text)

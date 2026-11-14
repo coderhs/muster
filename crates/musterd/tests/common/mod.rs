@@ -26,6 +26,20 @@ pub fn unique() -> String {
     format!("{}-{n}-{:x}", std::process::id(), t & 0xffff_ffff)
 }
 
+/// A command for one of Muster's binaries with every inherited `MUSTER_*` variable
+/// removed. The tests may themselves run inside a Muster card (or a shell with a
+/// development daemon's variables); without this the binary under test would pick up
+/// that card's token, daemon file or hook binary and talk to the real daemon.
+pub fn muster_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    for (k, _) in std::env::vars_os() {
+        if k.to_string_lossy().starts_with("MUSTER_") {
+            cmd.env_remove(k);
+        }
+    }
+    cmd
+}
+
 pub struct Env {
     pub root: PathBuf,
     pub home: PathBuf,
@@ -97,13 +111,12 @@ impl Env {
                 self.assert_fake(agent);
             }
         }
-        let child = Command::new(env!("CARGO_BIN_EXE_musterd"))
+        let child = muster_command(env!("CARGO_BIN_EXE_musterd"))
             .env("MUSTER_HOME", &self.home)
             .env("MUSTER_TMUX_SOCKET", &self.socket)
             .env("SHELL", self.test_shell())
             .env("PATH", self.path_var())
             .envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-            .env_remove("MUSTER_PORT")
             .env_remove("TMUX")
             .stdin(Stdio::null())
             .stdout(Stdio::null())

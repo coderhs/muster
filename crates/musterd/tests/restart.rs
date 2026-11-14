@@ -23,7 +23,7 @@ async fn session_survives_daemon_restart() {
     let mut c = Client::connect(port, &env.home).await;
 
     // A second daemon for the same MUSTER_HOME refuses to start.
-    let second = Command::new(env!("CARGO_BIN_EXE_musterd"))
+    let second = muster_command(env!("CARGO_BIN_EXE_musterd"))
         .env("MUSTER_HOME", &env.home)
         .env("MUSTER_TMUX_SOCKET", &env.socket)
         .stderr(Stdio::null())
