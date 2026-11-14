@@ -25,3 +25,11 @@ export function dueLabel(dueAt: number, now: number): string {
   if (diff < -1 && diff > -7) return `${-diff}d ago`;
   return new Date(dueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+/** "just now", "5m ago", "3h ago", "2d ago", then a date. */
+export function agoLabel(at: number, now: number): string {
+  const s = Math.floor((now - at) / 1000);
+  if (s < 60) return "just now";
+  if (s < 7 * 86_400) return `${shortDuration(now - at).split(" ")[0]} ago`;
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}

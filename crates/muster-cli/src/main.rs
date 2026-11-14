@@ -26,10 +26,12 @@ const USAGE: &str = "usage: muster <command>
 
 For agents inside a card ($MUSTER_CARD_ID is the caller):
   context list                        cards linked to mine
-  context read <card> [--summary | --transcript N | --screen | --notes]
+  context read <card> [--summary | --transcript N | --screen | --notes | --comments]
                                       (a human outside a card adds --any)
   card move --me <column>
   notes set <text> | notes append <text>
+  comment add <text> [--card CARD]    comment on my card (or a linked one), signed as me
+  comment list [<card>]               comments on my card (or a linked one)
   send <card> <text>                  delivered when that agent is between turns
 
 Cards may be given by id or unique id prefix; columns by id or title.
@@ -60,7 +62,8 @@ struct Args {
     opts: Vec<(String, Option<String>)>,
 }
 
-const SWITCHES: &[&str] = &["--start", "--kill", "--watch", "--me", "--any", "--screen", "--notes", "--summary"];
+const SWITCHES: &[&str] =
+    &["--start", "--kill", "--watch", "--me", "--any", "--screen", "--notes", "--summary", "--comments"];
 
 fn me() -> Option<String> {
     std::env::var("MUSTER_CARD_ID").ok().filter(|s| !s.is_empty())
@@ -247,6 +250,8 @@ async fn run(args: Vec<String>) -> Result<i32, String> {
                 (ContextKind::Screen, None)
             } else if a.has("--notes") {
                 (ContextKind::Notes, None)
+            } else if a.has("--comments") {
+                (ContextKind::Comments, None)
             } else if let Some(n) = a.get("--transcript") {
                 (ContextKind::Transcript, Some(n.parse().map_err(|_| "--transcript needs a number")?))
             } else {
@@ -271,8 +276,49 @@ async fn run(args: Vec<String>) -> Result<i32, String> {
                 text
             };
             let _: CardResult = c
-                .call(Method::CardUpdate(CardUpdateParams { id, notes: Some(Some(notes)), ..Default::default() }))
+                .call(Method::CardUpdate(CardUpdateParams {
+                    id,
+                    notes: Some(Some(notes)),
+                    from_card_id: me(),
+                    ..Default::default()
+                }))
                 .await?;
+        }
+        ("comment", "add") => {
+            let a = Args::parse(&args[2..])?;
+            let text = a.pos.join(" ");
+            if text.trim().is_empty() {
+                return Err("comment add needs the comment text".into());
+            }
+            let from = me();
+            let card_id = match (a.get("--card"), &from) {
+                (Some(t), Some(_)) => t,
+                (Some(t), None) => resolve_card(&mut c, &t).await?.id,
+                (None, Some(m)) => m.clone(),
+                (None, None) => return Err("run inside a card, or pass --card <id>".into()),
+            };
+            let r: CommentResult =
+                c.call(Method::CommentAdd(CommentAddParams { card_id, from_card_id: from, text })).await?;
+            println!("commented on card {}", r.comment.card_id);
+        }
+        ("comment", "list") => {
+            let a = Args::parse(&args[2..])?;
+            let from = me();
+            let card_id = match (a.pos.first().cloned(), &from) {
+                (Some(t), Some(_)) => t,
+                (Some(t), None) => resolve_card(&mut c, &t).await?.id,
+                (None, Some(m)) => m.clone(),
+                (None, None) => return Err("run inside a card, or name a card".into()),
+            };
+            let r: TextResult = c
+                .call(Method::ContextRead(ContextReadParams {
+                    card_id,
+                    from_card_id: from,
+                    kind: ContextKind::Comments,
+                    limit: None,
+                }))
+                .await?;
+            println!("{}", r.text);
         }
         ("send", _) => {
             let a = Args::parse(&args[1..])?;

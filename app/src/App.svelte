@@ -13,6 +13,9 @@
   import CardModal from "./lib/ui/CardModal.svelte";
   import NewCardDialog from "./lib/ui/NewCardDialog.svelte";
   import Icon from "./lib/ui/Icon.svelte";
+  import { isTauri } from "./lib/connection";
+
+  const inTauri = isTauri();
 
   let { app }: { app: AppState } = $props();
   // svelte-ignore state_referenced_locally
@@ -55,6 +58,12 @@
       e.preventDefault();
       app.settingsOpen = true;
     }
+    // Cmd+B hides or shows the projects sidebar (the drawer in a narrow window).
+    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "b") {
+      e.preventDefault();
+      if (narrow) drawer = !drawer;
+      else app.toggleSidebar();
+    }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "t") {
       e.preventDefault();
       app.setView(app.view === "board" ? "tracker" : "board");
@@ -84,7 +93,7 @@
         if (narrow && (e.target as HTMLElement).closest(".item")) drawer = false;
       }}
     >
-      <Sidebar />
+      <Sidebar rail={!narrow && app.sidebarCollapsed} />
     </div>
     {#if narrow}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -92,9 +101,16 @@
     {/if}
   {/if}
   <main>
-    <div class="toolbar" data-tauri-drag-region>
+    <div class="toolbar" class:lights={!narrow && app.sidebarCollapsed && inTauri} data-tauri-drag-region>
       {#if narrow}
-        <button class="icon-btn" title="Projects" onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
+        <button class="icon-btn" title="Projects (⌘B)" onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
+      {:else}
+        <button
+          class="icon-btn"
+          title={app.sidebarCollapsed ? "Expand projects (⌘B)" : "Collapse projects (⌘B)"}
+          aria-pressed={!app.sidebarCollapsed}
+          onclick={() => app.toggleSidebar()}><Icon name="sidebar" /></button
+        >
       {/if}
       <div class="seg" role="tablist" aria-label="View">
         <button role="tab" aria-selected={app.view === "board"} class:on={app.view === "board"} onclick={() => app.setView("board")} title="Board (⌘T)">Board</button>
@@ -244,6 +260,10 @@
   }
   .side-wrap {
     display: flex;
+  }
+  /* The collapsed rail is narrower than the window's traffic lights. */
+  .toolbar.lights {
+    padding-left: 30px;
   }
   .side-wrap.drawer {
     position: fixed;

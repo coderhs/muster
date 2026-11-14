@@ -8,7 +8,8 @@ web pages and the agents themselves from doing more than they should.
 - The daemon listens on `127.0.0.1` only.
 - A client must present the token stored in `$MUSTER_HOME/token` (readable only by
   you).
-- A browser page cannot connect: the daemon accepts only the app's own origin.
+- A web page in your browser cannot connect: the daemon accepts only the app's own
+  origin (and, for development, the local dev server on port 1420).
 - Wrong tokens are answered slowly, to make guessing pointless. A correct token is
   never delayed.
 
@@ -19,7 +20,11 @@ Each running card gets its own limited token (`MUSTER_CARD_TOKEN`). With it the
 
 - read cards **linked** to its own card,
 - move its own card and edit its own notes,
-- send messages to other cards.
+- send messages to linked cards,
+- read and write comments on its own card and on linked cards.
+
+Comments and notes edits are signed by Muster from the token, so an agent cannot write
+as you or as another agent. Only you can delete comments.
 
 It cannot read unlinked cards, start or kill sessions, or see the main token. The
 token stops working when the session ends.
@@ -45,5 +50,6 @@ Muster does not edit `~/.claude`, `~/.codex` or any other agent's configuration 
 credentials. Integration uses per-launch flags and generated files under
 `$MUSTER_HOME/agents`.
 
-The full review, with each finding and its fix, is in
-[`docs/REVIEW-daemon.md`](../REVIEW-daemon.md).
+The original review and the fixes it suggested are in
+[`docs/REVIEW-daemon.md`](../REVIEW-daemon.md); the rules as implemented are in the
+Security section of [`docs/PROTOCOL.md`](../PROTOCOL.md).

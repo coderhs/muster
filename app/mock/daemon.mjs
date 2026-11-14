@@ -344,6 +344,13 @@ const links = new Set(); // "a|b", a < b
 const linkKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 let settings = { keepAwake: true, autoRestore: false, silenceSeconds: 5 };
 let msgIds = 0;
+const comments = new Map(); // card id -> Comment[]
+let commentIds = 0;
+// As the daemon does: an agent author when the call names a card, else the user.
+const authorOf = (fromCardId) => {
+  const from = fromCardId ? cards.get(fromCardId) : null;
+  return from ? { kind: "agent", cardId: from.id, agentId: from.agentId, cardTitle: from.title } : { kind: "user" };
+};
 
 /** Type the oldest queued message into an idle/done card that has a session. */
 function deliverNext(card) {
@@ -702,6 +709,11 @@ const handlers = {
     }
     if (kind === "screen") return { text: (sessions.get(cardId)?.buf ?? "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").slice(-4000) };
     if (kind === "notes") return { text: c.notes ?? "" };
+    if (kind === "comments") {
+      const list = comments.get(cardId) ?? [];
+      const who = (a) => (a.kind === "agent" ? `agent ${a.agentId} (card ${a.cardId} "${a.cardTitle}")` : "user");
+      return { text: list.length ? list.map((x) => `${who(x.author)}:\n${x.text}`).join("\n\n") : "(no comments)" };
+    }
     return { text: `${c.title}\nagent: ${c.agentId}\nstatus: ${c.status}\ncwd: ${c.cwd}` };
   },
   "message.send": ({ cardId, fromCardId, text }) => {
@@ -713,6 +725,35 @@ const handlers = {
     cardEvent(c);
     deliverNext(c);
     return { message: m };
+  },
+  "comment.list": ({ cardId }) => {
+    getCard(cardId);
+    return { comments: comments.get(cardId) ?? [] };
+  },
+  "comment.add": ({ cardId, fromCardId, text }) => {
+    const c = getCard(cardId);
+    need(typeof text === "string" && text.trim(), "invalid", "empty comment");
+    const comment = { id: `cm-${++commentIds}`, cardId, author: authorOf(fromCardId), text: text.trim(), createdAt: now() };
+    comments.set(cardId, [...(comments.get(cardId) ?? []), comment]);
+    c.commentCount = comments.get(cardId).length;
+    if (comment.author.kind === "agent") c.unread = true;
+    c.updatedAt = now();
+    broadcast("comment.changed", { comment });
+    cardEvent(c);
+    return { comment };
+  },
+  "comment.delete": ({ id: mid }) => {
+    const entry = [...comments.entries()].find(([, list]) => list.some((x) => x.id === mid));
+    need(entry, "not_found", "no such comment");
+    const [cardId, list] = entry;
+    comments.set(cardId, list.filter((x) => x.id !== mid));
+    const c = cards.get(cardId);
+    if (c) {
+      c.commentCount = comments.get(cardId).length;
+      cardEvent(c);
+    }
+    broadcast("comment.changed", { removedId: mid, cardId });
+    return {};
   },
   "message.cancel": ({ id: mid }) => {
     const c = [...cards.values()].find((x) => x.queuedMessages?.some((m) => m.id === mid));
@@ -801,6 +842,10 @@ const handlers = {
     const card = getCard(params.id);
     if (params.title !== undefined) need(nonEmpty(params.title), "invalid", "title must not be empty");
     if (params.priority != null) need(["low", "medium", "high", "urgent"].includes(params.priority), "invalid", "bad priority");
+    if (params.notes !== undefined && params.notes !== card.notes) {
+      card.notesEditedBy = authorOf(params.fromCardId);
+      card.notesEditedAt = now();
+    }
     for (const k of ["title", "prompt", "notes", "priority", "dueAt"]) {
       if (params[k] !== undefined) card[k] = params[k];
     }
@@ -840,6 +885,7 @@ const handlers = {
       endSession(card, null);
     }
     cards.delete(cid);
+    comments.delete(cid);
     broadcast("card.changed", { removedId: cid, projectId: card.projectId });
     return {};
   },

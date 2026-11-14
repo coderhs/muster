@@ -39,6 +39,8 @@ export interface Toast {
 
 const PROJECT_KEY = "muster.project";
 const VIEW_KEY = "muster.view";
+const SIDEBAR_KEY = "muster.sidebar.collapsed";
+const CARD_SIDE_KEY = "muster.modal.side.collapsed";
 
 function remember(key: string, v: string | null) {
   try {
@@ -92,6 +94,10 @@ export class AppState {
   /** A card picker for linking, opened from a card. */
   linking = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);
   view = $state<"board" | "tracker">(recall(VIEW_KEY) === "tracker" ? "tracker" : "board");
+  /** The projects sidebar is hidden (wide windows only; narrow ones use the drawer). */
+  sidebarCollapsed = $state(recall(SIDEBAR_KEY) === "1");
+  /** The details column of an open card is hidden, leaving the terminal the full width. */
+  cardSideCollapsed = $state(recall(CARD_SIDE_KEY) === "1");
   toasts = $state<Toast[]>([]);
   /** Bumped after each successful (re)connect so views can re-sync. */
   epoch = $state(0);
@@ -229,6 +235,16 @@ export class AppState {
     } catch (e) {
       this.toast(`Could not load state: ${errText(e)}`);
     }
+  }
+
+  toggleSidebar() {
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    remember(SIDEBAR_KEY, this.sidebarCollapsed ? "1" : null);
+  }
+
+  toggleCardSide() {
+    this.cardSideCollapsed = !this.cardSideCollapsed;
+    remember(CARD_SIDE_KEY, this.cardSideCollapsed ? "1" : null);
   }
 
   setView(v: "board" | "tracker") {

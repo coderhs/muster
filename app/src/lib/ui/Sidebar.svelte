@@ -8,8 +8,13 @@
   import Swatches from "./Swatches.svelte";
   import Dialog from "./Dialog.svelte";
   import { colorOr } from "./colors";
+  import { inkOn, railLabels } from "./rail";
+
+  /** `rail`: the collapsed form, a narrow strip with one lettered tile per project. */
+  let { rail = false }: { rail?: boolean } = $props();
 
   const app = useApp();
+  const labels = $derived(railLabels(app.projects.map((p) => p.name)));
 
   let addingPath = $state<string | null>(null);
   let renaming = $state<string | null>(null);
@@ -25,6 +30,7 @@
   $effect(() => {
     if (app.addProjectRequest !== seenRequest) {
       seenRequest = app.addProjectRequest;
+      expand();
       addingPath = "";
     }
   });
@@ -35,8 +41,14 @@
     if (p) await app.addProject(p).catch(() => {});
   }
 
+  // Text entry needs the full width.
+  function expand() {
+    if (rail) app.toggleSidebar();
+  }
+
   function startRename(p: Project) {
     menu = null;
+    expand();
     renaming = p.id;
     renameDraft = p.name;
   }
@@ -72,6 +84,42 @@
 
 <svelte:window onkeydown={onKey} />
 
+{#if rail}
+  <nav class="sidebar rail" aria-label="Projects">
+    <div class="titlebar" data-tauri-drag-region></div>
+    <ul class="tiles">
+      {#each app.projects as p, i (p.id)}
+        {@const c = colorOr(p.color, "#0a84ff")}
+        {@const needs = app.needsYouByProject.get(p.id)}
+        <li>
+          <button
+            class="tile"
+            class:active={p.id === app.currentProjectId}
+            style="--c:{c};--ink:{inkOn(c)}"
+            title="{p.name}{i < 9 ? ` (⌘${i + 1})` : ''}{needs ? ` · ${needs} need you` : ''}"
+            aria-label={p.name}
+            aria-current={p.id === app.currentProjectId ? "true" : undefined}
+            onclick={() => {
+              app.setView("board");
+              void app.selectProject(p.id);
+            }}
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              menu = { project: p, anchor: e.currentTarget as HTMLElement };
+            }}
+          >
+            {labels[i]}
+            {#if needs}<span class="tneeds"></span>{/if}
+          </button>
+        </li>
+      {/each}
+      <li><button class="icon-btn" title="Add project" onclick={add}><Icon name="plus" /></button></li>
+    </ul>
+    <div class="bottom">
+      <button class="icon-btn" title="Settings (⌘,)" onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
+    </div>
+  </nav>
+{:else}
 <nav class="sidebar">
   <div class="titlebar" data-tauri-drag-region></div>
   <div class="section" data-tauri-drag-region>
@@ -159,6 +207,7 @@
     <button class="icon-btn" title="Settings (⌘,)" onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
   </div>
 </nav>
+{/if}
 
 {#if menu}
   {@const p = menu.project}
@@ -219,6 +268,59 @@
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border);
     min-height: 0;
+  }
+  .sidebar.rail {
+    width: 56px;
+    align-items: center;
+  }
+  .tiles {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+    flex: 1;
+    width: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .tile {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--c);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    opacity: 0.72;
+  }
+  .tile:hover {
+    opacity: 1;
+  }
+  .tile.active {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px var(--bg-sidebar),
+      0 0 0 4px var(--c);
+  }
+  .tneeds {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--s-needs);
+    border: 2px solid var(--bg-sidebar);
+  }
+  .rail .bottom {
+    padding: 6px 0 10px;
   }
   .titlebar {
     height: var(--titlebar);
