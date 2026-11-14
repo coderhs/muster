@@ -111,11 +111,8 @@ pub mod title_source {
     pub const AGENT: &str = "agent";
 }
 
-pub const DEFAULT_COLUMNS: &[(&str, ColumnCategory)] = &[
-    ("To Do", ColumnCategory::Unstarted),
-    ("In Progress", ColumnCategory::Started),
-    ("Done", ColumnCategory::Done),
-];
+pub const DEFAULT_COLUMNS: &[(&str, ColumnCategory)] =
+    &[("To Do", ColumnCategory::Unstarted), ("In Progress", ColumnCategory::Started), ("Done", ColumnCategory::Done)];
 
 const PALETTE: &[&str] = &["#5b8def", "#e5734a", "#46a758", "#9b6cd9", "#d6a21e", "#e0558a", "#2fa4a9"];
 
@@ -288,7 +285,9 @@ impl Store {
     pub fn list_projects(&self) -> Result<Vec<Project>> {
         let mut st = self
             .conn
-            .prepare_cached("SELECT id, name, path, color, position, worktree_setup FROM projects ORDER BY position, created_at")
+            .prepare_cached(
+                "SELECT id, name, path, color, position, worktree_setup FROM projects ORDER BY position, created_at",
+            )
             .map_err(sql_err)?;
         let rows = st.query_map([], project_from_row).map_err(sql_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(sql_err)
@@ -296,7 +295,11 @@ impl Store {
 
     pub fn get_project(&self, id: &str) -> Result<Project> {
         self.conn
-            .query_row("SELECT id, name, path, color, position, worktree_setup FROM projects WHERE id = ?1", [id], project_from_row)
+            .query_row(
+                "SELECT id, name, path, color, position, worktree_setup FROM projects WHERE id = ?1",
+                [id],
+                project_from_row,
+            )
             .optional()
             .map_err(sql_err)?
             .ok_or_else(|| not_found("project", id))
@@ -493,7 +496,9 @@ impl Store {
         if let Some(pos) = position {
             let ids: Vec<String> = self.list_columns(&c.project_id)?.into_iter().map(|c| c.id).collect();
             for (cid, p) in reorder(&ids, id, pos) {
-                self.conn.execute("UPDATE columns SET position = ?2 WHERE id = ?1", params![cid, p]).map_err(sql_err)?;
+                self.conn
+                    .execute("UPDATE columns SET position = ?2 WHERE id = ?1", params![cid, p])
+                    .map_err(sql_err)?;
                 if cid != id {
                     changed.push(self.get_column(&cid)?);
                 }
@@ -537,7 +542,9 @@ impl Store {
         let mut shifted = vec![];
         for (i, c) in self.list_columns(&col.project_id)?.into_iter().enumerate() {
             if c.position != i as i64 {
-                self.conn.execute("UPDATE columns SET position = ?2 WHERE id = ?1", params![c.id, i as i64]).map_err(sql_err)?;
+                self.conn
+                    .execute("UPDATE columns SET position = ?2 WHERE id = ?1", params![c.id, i as i64])
+                    .map_err(sql_err)?;
                 shifted.push(Column { position: i as i64, ..c });
             }
         }
@@ -801,7 +808,11 @@ impl Store {
                 params![id, status.as_str(), now, unread as i64, turn],
             )
             .map_err(sql_err)?;
-        self.log(id, "status", Some(&serde_json::json!({"from": c.status.as_str(), "to": status.as_str()}).to_string()))?;
+        self.log(
+            id,
+            "status",
+            Some(&serde_json::json!({"from": c.status.as_str(), "to": status.as_str()}).to_string()),
+        )?;
         self.get_card(id)
     }
 
@@ -870,7 +881,11 @@ impl Store {
             .ok_or_else(|| not_found("card", id))?;
         let allowed = match source {
             title_source::PROMPT => current == title_source::PLACEHOLDER,
-            title_source::AGENT => current == title_source::PLACEHOLDER || current == title_source::PROMPT || current == title_source::AGENT,
+            title_source::AGENT => {
+                current == title_source::PLACEHOLDER
+                    || current == title_source::PROMPT
+                    || current == title_source::AGENT
+            }
             _ => false,
         };
         if !allowed || title_now == title {
@@ -906,9 +921,7 @@ impl Store {
 
     /// Stores the hash of a card's session token (`None` revokes it).
     pub fn set_card_token_hash(&mut self, id: &str, hash: Option<&str>) -> Result<()> {
-        self.conn
-            .execute("UPDATE cards SET card_token_hash = ?2 WHERE id = ?1", params![id, hash])
-            .map_err(sql_err)?;
+        self.conn.execute("UPDATE cards SET card_token_hash = ?2 WHERE id = ?1", params![id, hash]).map_err(sql_err)?;
         Ok(())
     }
 
@@ -1093,10 +1106,7 @@ impl Store {
     }
 
     pub fn meta_get(&self, key: &str) -> Result<Option<String>> {
-        self.conn
-            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
-            .optional()
-            .map_err(sql_err)
+        self.conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional().map_err(sql_err)
     }
 
     pub fn meta_set(&mut self, key: &str, value: &str) -> Result<()> {
@@ -1237,10 +1247,7 @@ mod tests {
         // errors
         assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&a.id), None).unwrap_err().code, ErrorCode::Invalid);
         assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&b.id), None).unwrap_err().code, ErrorCode::Invalid);
-        assert_eq!(
-            s.move_card(&b.id, &cols[0].id, Some(&c.id), Some(&c.id)).unwrap_err().code,
-            ErrorCode::Invalid
-        );
+        assert_eq!(s.move_card(&b.id, &cols[0].id, Some(&c.id), Some(&c.id)).unwrap_err().code, ErrorCode::Invalid);
     }
 
     #[test]

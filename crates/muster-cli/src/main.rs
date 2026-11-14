@@ -282,10 +282,13 @@ async fn run(args: Vec<String>) -> Result<i32, String> {
                 None => resolve_card(&mut c, &target).await?.id,
             };
             let text = a.pos[1..].join(" ");
-            let r: MessageResult = c
-                .call(Method::MessageSend(MessageSendParams { card_id: target, from_card_id: me(), text }))
-                .await?;
-            println!("message {} {}", r.message.id, if r.message.delivered_at.is_some() { "delivered" } else { "queued" });
+            let r: MessageResult =
+                c.call(Method::MessageSend(MessageSendParams { card_id: target, from_card_id: me(), text })).await?;
+            println!(
+                "message {} {}",
+                r.message.id,
+                if r.message.delivered_at.is_some() { "delivered" } else { "queued" }
+            );
         }
         ("stats", _) => {
             let a = Args::parse(&args[1..])?;
@@ -308,7 +311,13 @@ async fn run(args: Vec<String>) -> Result<i32, String> {
                             s.total.processes
                         );
                         for cs in &s.cards {
-                            println!("  {}  {:.1} MB {:.1}% {} procs", cs.card_id, mb(cs.stats.mem_bytes), cs.stats.cpu_percent, cs.stats.processes);
+                            println!(
+                                "  {}  {:.1} MB {:.1}% {} procs",
+                                cs.card_id,
+                                mb(cs.stats.mem_bytes),
+                                cs.stats.cpu_percent,
+                                cs.stats.processes
+                            );
                         }
                         seen += 1;
                     }

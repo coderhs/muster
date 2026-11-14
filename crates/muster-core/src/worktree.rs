@@ -48,7 +48,9 @@ pub async fn create(project: &Path, branch: &str) -> Result<PathBuf> {
     if !valid_branch(branch) {
         return Err(invalid(format!("invalid branch name {branch:?}")));
     }
-    git(project, &["rev-parse", "--git-dir"]).await.map_err(|_| invalid(format!("{} is not a git repository", project.display())))?;
+    git(project, &["rev-parse", "--git-dir"])
+        .await
+        .map_err(|_| invalid(format!("{} is not a git repository", project.display())))?;
     let path = worktree_path(project, branch);
     if path.exists() {
         return Err(err(ErrorCode::Conflict, format!("{} already exists", path.display())));

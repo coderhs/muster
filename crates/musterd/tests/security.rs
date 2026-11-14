@@ -36,17 +36,14 @@ async fn project(c: &mut Client, env: &Env) -> (String, String) {
         .as_str()
         .unwrap()
         .to_string();
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
     (pid, col)
 }
 
 async fn start(c: &mut Client, pid: &str, col: &str, agent: &str) -> String {
-    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true}))
-        .await
-        .unwrap()["card"]["id"]
+    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true})).await.unwrap()
+        ["card"]["id"]
         .as_str()
         .unwrap()
         .to_string()
@@ -310,7 +307,8 @@ async fn a_huge_transcript_does_not_stall_terminals() {
     let card = start(&mut c, &pid, &col, "claude").await;
     let sh = start(&mut c, &pid, &col, "shell").await;
     // Point the card at the transcript the way a hook would (through its persisted state).
-    let sid = c.call("card.get", json!({"id": card})).await.unwrap()["card"]["agentSessionId"].as_str().unwrap().to_string();
+    let sid =
+        c.call("card.get", json!({"id": card})).await.unwrap()["card"]["agentSessionId"].as_str().unwrap().to_string();
     let named = dir.join(format!("{sid}.jsonl"));
     std::fs::rename(&path, &named).unwrap();
 

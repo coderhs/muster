@@ -87,10 +87,7 @@ impl HookReceiver {
     /// Bind `path` (removing a stale socket file left by a previous run, refusing to
     /// replace anything that is not a socket or that still accepts connections), make it
     /// owner-only, and start accepting. Events arrive on the returned channel.
-    pub fn bind(
-        path: &Path,
-        registry: AdapterRegistry,
-    ) -> io::Result<(HookReceiver, Receiver<NormalizedEvent>)> {
+    pub fn bind(path: &Path, registry: AdapterRegistry) -> io::Result<(HookReceiver, Receiver<NormalizedEvent>)> {
         if let Ok(meta) = std::fs::symlink_metadata(path) {
             if !meta.file_type().is_socket() {
                 return Err(io::Error::new(
@@ -123,20 +120,16 @@ impl HookReceiver {
             id_prefix: format!("p{:x}-", now_ms()),
         });
         let accept_inner = inner.clone();
-        thread::Builder::new()
-            .name("muster-hook-accept".into())
-            .spawn(move || {
-                for conn in listener.incoming() {
-                    if accept_inner.closed.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let Ok(stream) = conn else { continue };
-                    let inner = accept_inner.clone();
-                    let _ = thread::Builder::new()
-                        .name("muster-hook-conn".into())
-                        .spawn(move || handle(inner, stream));
+        thread::Builder::new().name("muster-hook-accept".into()).spawn(move || {
+            for conn in listener.incoming() {
+                if accept_inner.closed.load(Ordering::SeqCst) {
+                    break;
                 }
-            })?;
+                let Ok(stream) = conn else { continue };
+                let inner = accept_inner.clone();
+                let _ = thread::Builder::new().name("muster-hook-conn".into()).spawn(move || handle(inner, stream));
+            }
+        })?;
         Ok((HookReceiver { inner }, rx))
     }
 
@@ -147,18 +140,8 @@ impl HookReceiver {
     /// Answer a pending permission request. The decision is written to the waiting hook,
     /// which prints it for the agent, and a [`AgentEvent::PermissionResolved`] event
     /// follows on the channel.
-    pub fn answer(
-        &self,
-        request_id: &str,
-        decision: &PermissionDecision,
-    ) -> Result<(), AnswerError> {
-        let p = self
-            .inner
-            .pending
-            .lock()
-            .unwrap()
-            .remove(request_id)
-            .ok_or(AnswerError::NotFound)?;
+    pub fn answer(&self, request_id: &str, decision: &PermissionDecision) -> Result<(), AnswerError> {
+        let p = self.inner.pending.lock().unwrap().remove(request_id).ok_or(AnswerError::NotFound)?;
         let mut line = p.adapter.permission_reply(&p.info.request, decision);
         line.push('\n');
         let mut s = &p.stream;
@@ -171,19 +154,12 @@ impl HookReceiver {
                     &self.inner,
                     &p.info,
                     request_id,
-                    PermissionOutcome::Answered {
-                        decision: decision.clone(),
-                    },
+                    PermissionOutcome::Answered { decision: decision.clone() },
                 );
                 Ok(())
             }
             Err(e) => {
-                emit_resolved(
-                    &self.inner,
-                    &p.info,
-                    request_id,
-                    PermissionOutcome::Elsewhere,
-                );
+                emit_resolved(&self.inner, &p.info, request_id, PermissionOutcome::Elsewhere);
                 Err(AnswerError::Io(e))
             }
         }
@@ -194,11 +170,7 @@ impl HookReceiver {
     /// before starting the session, and again for every live card after a daemon
     /// restart (persist the secret with the card: the running agent keeps its value).
     pub fn set_card_secret(&self, card_id: &str, secret: &str) {
-        self.inner
-            .secrets
-            .lock()
-            .unwrap()
-            .insert(card_id.to_string(), secret.to_string());
+        self.inner.secrets.lock().unwrap().insert(card_id.to_string(), secret.to_string());
     }
 
     /// Forget a card's secret (session ended or card deleted).
@@ -225,13 +197,7 @@ impl HookReceiver {
 
     /// Requests that can still be answered.
     pub fn pending(&self) -> Vec<PendingPermission> {
-        self.inner
-            .pending
-            .lock()
-            .unwrap()
-            .values()
-            .map(|p| p.info.clone())
-            .collect()
+        self.inner.pending.lock().unwrap().values().map(|p| p.info.clone()).collect()
     }
 
     /// Stop accepting and release all waiting hooks (they print nothing, so the agents
@@ -252,12 +218,7 @@ fn send(inner: &Inner, ev: NormalizedEvent) {
     let _ = inner.tx.lock().unwrap().send(ev);
 }
 
-fn emit_resolved(
-    inner: &Inner,
-    info: &PendingPermission,
-    request_id: &str,
-    outcome: PermissionOutcome,
-) {
+fn emit_resolved(inner: &Inner, info: &PendingPermission, request_id: &str, outcome: PermissionOutcome) {
     send(
         inner,
         NormalizedEvent {
@@ -268,10 +229,7 @@ fn emit_resolved(
             cwd: None,
             subagent_id: None,
             at_ms: now_ms(),
-            kind: AgentEvent::PermissionResolved {
-                request_id: request_id.to_string(),
-                outcome,
-            },
+            kind: AgentEvent::PermissionResolved { request_id: request_id.to_string(), outcome },
         },
     );
 }
@@ -298,9 +256,7 @@ fn handle(inner: Arc<Inner>, stream: UnixStream) {
     let accepted = {
         let secrets = inner.secrets.lock().unwrap();
         match secrets.get(&env.card_id) {
-            Some(expected) => given
-                .as_deref()
-                .is_some_and(|g| secret_eq(g.as_bytes(), expected.as_bytes())),
+            Some(expected) => given.as_deref().is_some_and(|g| secret_eq(g.as_bytes(), expected.as_bytes())),
             None => !inner.require_secret.load(Ordering::SeqCst),
         }
     };
@@ -312,11 +268,7 @@ fn handle(inner: Arc<Inner>, stream: UnixStream) {
     if let Some(tap) = inner.tap.lock().unwrap().as_ref() {
         let _ = tap.send(env.clone());
     }
-    let agent_id = if env.agent_id.is_empty() {
-        "claude"
-    } else {
-        env.agent_id.as_str()
-    };
+    let agent_id = if env.agent_id.is_empty() { "claude" } else { env.agent_id.as_str() };
     let Some(adapter) = inner.registry.get(agent_id).cloned() else {
         reply_nothing(&stream, env.wants_reply);
         return;
@@ -328,14 +280,10 @@ fn handle(inner: Arc<Inner>, stream: UnixStream) {
         let mut pending = inner.pending.lock().unwrap();
         let ids: Vec<String> = pending
             .iter()
-            .filter(|(_, p)| {
-                p.info.card_id == env.card_id && p.adapter.settles_permission(&env, &p.info.request)
-            })
+            .filter(|(_, p)| p.info.card_id == env.card_id && p.adapter.settles_permission(&env, &p.info.request))
             .map(|(id, _)| id.clone())
             .collect();
-        ids.into_iter()
-            .filter_map(|id| pending.remove(&id).map(|p| (id, p)))
-            .collect()
+        ids.into_iter().filter_map(|id| pending.remove(&id).map(|p| (id, p))).collect()
     };
     for (id, p) in settled {
         reply_nothing(&p.stream, true);
@@ -346,34 +294,22 @@ fn handle(inner: Arc<Inner>, stream: UnixStream) {
     // Paths in payloads are only trusted under the agent's own transcript directory.
     for ev in &mut events {
         if let Some(p) = ev.transcript_path.take() {
-            ev.transcript_path = adapter
-                .validate_transcript_path(Path::new(&p))
-                .map(|p| p.to_string_lossy().into_owned());
+            ev.transcript_path =
+                adapter.validate_transcript_path(Path::new(&p)).map(|p| p.to_string_lossy().into_owned());
         }
-        if let AgentEvent::SubagentStopped {
-            transcript_path, ..
-        } = &mut ev.kind
-        {
+        if let AgentEvent::SubagentStopped { transcript_path, .. } = &mut ev.kind {
             if let Some(p) = transcript_path.take() {
-                *transcript_path = adapter
-                    .validate_transcript_path(Path::new(&p))
-                    .map(|p| p.to_string_lossy().into_owned());
+                *transcript_path =
+                    adapter.validate_transcript_path(Path::new(&p)).map(|p| p.to_string_lossy().into_owned());
             }
         }
     }
 
     let mut waiting: Option<String> = None;
     if env.wants_reply {
-        if let Some(ev) = events
-            .iter_mut()
-            .find(|e| matches!(e.kind, AgentEvent::PermissionRequested { .. }))
-        {
+        if let Some(ev) = events.iter_mut().find(|e| matches!(e.kind, AgentEvent::PermissionRequested { .. })) {
             if let AgentEvent::PermissionRequested { request } = &mut ev.kind {
-                let id = format!(
-                    "{}{}",
-                    inner.id_prefix,
-                    inner.next_id.fetch_add(1, Ordering::SeqCst)
-                );
+                let id = format!("{}{}", inner.id_prefix, inner.next_id.fetch_add(1, Ordering::SeqCst));
                 request.id = Some(id.clone());
                 let Ok(write_half) = stream.try_clone() else {
                     return;

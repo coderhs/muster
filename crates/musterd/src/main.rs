@@ -4,9 +4,9 @@ mod agents;
 mod context;
 mod launchd;
 mod scrollback;
-mod stats;
 mod server;
 mod state;
+mod stats;
 
 use std::io::Write;
 use std::os::fd::AsRawFd;
@@ -197,7 +197,8 @@ fn run() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async move {
-        let listener = TcpListener::bind(("127.0.0.1", port)).await.map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
+        let listener =
+            TcpListener::bind(("127.0.0.1", port)).await.map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let (agents, hook_events) = agents::Agents::new(&home);
         agents.load_usage(store.meta_get("usage").ok().flatten());

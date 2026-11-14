@@ -17,9 +17,7 @@ pub struct Gemini {
 
 impl Default for Gemini {
     fn default() -> Self {
-        Gemini {
-            program: "gemini".into(),
-        }
+        Gemini { program: "gemini".into() }
     }
 }
 
@@ -32,9 +30,7 @@ pub struct Antigravity {
 
 impl Default for Antigravity {
     fn default() -> Self {
-        Antigravity {
-            program: "agy".into(),
-        }
+        Antigravity { program: "agy".into() }
     }
 }
 
@@ -84,11 +80,7 @@ impl AgentAdapter for Gemini {
         Ok(cmd(&self.program, spec, a))
     }
     fn resume(&self, spec: &LaunchSpec, session_id: &str) -> io::Result<CommandSpec> {
-        Ok(cmd(
-            &self.program,
-            spec,
-            vec!["--resume".into(), session_id.into()],
-        ))
+        Ok(cmd(&self.program, spec, vec!["--resume".into(), session_id.into()]))
     }
 }
 
@@ -109,10 +101,6 @@ impl AgentAdapter for Antigravity {
         Ok(cmd(&self.program, spec, Vec::new()))
     }
     fn resume(&self, spec: &LaunchSpec, session_id: &str) -> io::Result<CommandSpec> {
-        Ok(cmd(
-            &self.program,
-            spec,
-            vec!["--conversation".into(), session_id.into()],
-        ))
+        Ok(cmd(&self.program, spec, vec!["--conversation".into(), session_id.into()]))
     }
 }

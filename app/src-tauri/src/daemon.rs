@@ -33,10 +33,7 @@ pub fn read_daemon_json(home: &Path) -> Result<DaemonJson, String> {
 
 pub fn read_token(home: &Path) -> Result<String, String> {
     let path = home.join("token");
-    Ok(std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?
-        .trim()
-        .to_string())
+    Ok(std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?.trim().to_string())
 }
 
 fn pid_alive(pid: i32) -> bool {
@@ -134,11 +131,7 @@ pub fn ensure_running(explicit: bool) -> Result<Ensure, String> {
         .map_err(|e| format!("cannot open musterd.log: {e}"))?;
 
     let mut cmd = Command::new(&bin);
-    cmd.arg("run")
-        .env("MUSTER_HOME", &home)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log));
+    cmd.arg("run").env("MUSTER_HOME", &home).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::from(log));
     if let Some(dir) = bin.parent() {
         // Lets the daemon find muster-hook beside itself however it looks it up.
         let hook = dir.join("muster-hook");

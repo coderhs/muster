@@ -90,8 +90,7 @@ pub mod tail;
 pub mod types;
 
 pub use adapter::{
-    find_on_path, now_ms, AdapterRegistry, AgentAdapter, Capabilities, HookConfig, LaunchSpec,
-    SessionRef, StatusSource,
+    find_on_path, now_ms, AdapterRegistry, AgentAdapter, Capabilities, HookConfig, LaunchSpec, SessionRef, StatusSource,
 };
 pub use basic::{Antigravity, Gemini};
 pub use claude::ClaudeCode;

@@ -44,10 +44,7 @@ pub fn settings_json(h: &HookConfig, user_statusline: Option<&Value>) -> Value {
     for &ev in HOOK_EVENTS {
         let (args, timeout) = if ev == "PermissionRequest" {
             let wait = h.approval_wait.as_secs().max(1);
-            (
-                json!(["hook", ev, "--wait", wait.to_string()]),
-                wait + APPROVAL_TIMEOUT_SLACK_SECS,
-            )
+            (json!(["hook", ev, "--wait", wait.to_string()]), wait + APPROVAL_TIMEOUT_SLACK_SECS)
         } else {
             (json!(["hook", ev]), FORWARD_TIMEOUT_SECS)
         };
@@ -100,11 +97,7 @@ pub(super) fn normalize(env: &HookEnvelope, at_ms: u64) -> Vec<NormalizedEvent> 
     let p = &env.payload;
     let base = |kind: AgentEvent| NormalizedEvent {
         card_id: env.card_id.clone(),
-        agent_id: if env.agent_id.is_empty() {
-            "claude".into()
-        } else {
-            env.agent_id.clone()
-        },
+        agent_id: if env.agent_id.is_empty() { "claude".into() } else { env.agent_id.clone() },
         session_id: s(p, "session_id"),
         transcript_path: s(p, "transcript_path"),
         cwd: s(p, "cwd"),
@@ -117,9 +110,7 @@ pub(super) fn normalize(env: &HookEnvelope, at_ms: u64) -> Vec<NormalizedEvent> 
         if p.is_null() {
             return Vec::new();
         }
-        let mut ev = base(AgentEvent::Usage {
-            usage: parse_statusline(p),
-        });
+        let mut ev = base(AgentEvent::Usage { usage: parse_statusline(p) });
         ev.subagent_id = None;
         return vec![ev];
     }
@@ -150,32 +141,23 @@ pub(super) fn normalize(env: &HookEnvelope, at_ms: u64) -> Vec<NormalizedEvent> 
             let exited = !matches!(reason.as_str(), "clear" | "resume");
             AgentEvent::SessionEnded { reason, exited }
         }
-        "UserPromptSubmit" => AgentEvent::TurnStarted {
-            prompt: s(p, "prompt"),
-        },
-        "PreToolUse" if tool() == "AskUserQuestion" => AgentEvent::QuestionAsked {
-            tool_use_id: s(p, "tool_use_id"),
-            questions: parse_questions(&input()),
-        },
+        "UserPromptSubmit" => AgentEvent::TurnStarted { prompt: s(p, "prompt") },
+        "PreToolUse" if tool() == "AskUserQuestion" => {
+            AgentEvent::QuestionAsked { tool_use_id: s(p, "tool_use_id"), questions: parse_questions(&input()) }
+        }
         "PreToolUse" => AgentEvent::ToolStarted {
             tool: tool(),
             tool_use_id: s(p, "tool_use_id"),
             summary: tool_summary(&tool(), &input()),
         },
-        "PostToolUse" => AgentEvent::ToolFinished {
-            tool: tool(),
-            tool_use_id: s(p, "tool_use_id"),
-            ok: true,
-            interrupted: false,
-        },
+        "PostToolUse" => {
+            AgentEvent::ToolFinished { tool: tool(), tool_use_id: s(p, "tool_use_id"), ok: true, interrupted: false }
+        }
         "PostToolUseFailure" => AgentEvent::ToolFinished {
             tool: tool(),
             tool_use_id: s(p, "tool_use_id"),
             ok: false,
-            interrupted: p
-                .get("is_interrupt")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            interrupted: p.get("is_interrupt").and_then(Value::as_bool).unwrap_or(false),
         },
         "PermissionRequest" => AgentEvent::PermissionRequested {
             request: PermissionRequest {
@@ -183,28 +165,16 @@ pub(super) fn normalize(env: &HookEnvelope, at_ms: u64) -> Vec<NormalizedEvent> 
                 tool: tool(),
                 summary: tool_summary(&tool(), &input()),
                 input: input(),
-                suggestions: p
-                    .get("permission_suggestions")
-                    .cloned()
-                    .unwrap_or(Value::Null),
+                suggestions: p.get("permission_suggestions").cloned().unwrap_or(Value::Null),
                 prompt: prompt_kind(&tool(), &input()),
             },
         },
-        "PermissionDenied" => AgentEvent::PermissionAutoDenied {
-            tool: tool(),
-            reason: s(p, "reason"),
-        },
+        "PermissionDenied" => AgentEvent::PermissionAutoDenied { tool: tool(), reason: s(p, "reason") },
         "Notification" => {
             let t = s(p, "notification_type").unwrap_or_default();
-            let needs_attention = matches!(
-                t.as_str(),
-                "permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"
-            );
-            AgentEvent::Notification {
-                notification_type: t,
-                message: s(p, "message"),
-                needs_attention,
-            }
+            let needs_attention =
+                matches!(t.as_str(), "permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog");
+            AgentEvent::Notification { notification_type: t, message: s(p, "message"), needs_attention }
         }
         "Stop" => AgentEvent::TurnFinished {
             last_message: s(p, "last_assistant_message"),
@@ -227,26 +197,16 @@ pub(super) fn normalize(env: &HookEnvelope, at_ms: u64) -> Vec<NormalizedEvent> 
             agent_type: s(p, "agent_type").filter(|t| !t.is_empty()),
             transcript_path: s(p, "agent_transcript_path"),
         },
-        "PreCompact" => AgentEvent::CompactionStarted {
-            trigger: s(p, "trigger").unwrap_or_default(),
-        },
-        "PostCompact" => AgentEvent::CompactionFinished {
-            trigger: s(p, "trigger").unwrap_or_default(),
-        },
-        "Elicitation" => AgentEvent::InputRequested {
-            source: s(p, "mcp_server_name").unwrap_or_default(),
-            message: s(p, "message"),
-        },
-        other => AgentEvent::Other {
-            event: other.to_string(),
-        },
+        "PreCompact" => AgentEvent::CompactionStarted { trigger: s(p, "trigger").unwrap_or_default() },
+        "PostCompact" => AgentEvent::CompactionFinished { trigger: s(p, "trigger").unwrap_or_default() },
+        "Elicitation" => {
+            AgentEvent::InputRequested { source: s(p, "mcp_server_name").unwrap_or_default(), message: s(p, "message") }
+        }
+        other => AgentEvent::Other { event: other.to_string() },
     };
     let mut ev = base(kind);
     // For subagent lifecycle events the agent_id names the subagent itself, not a source.
-    if matches!(
-        ev.kind,
-        AgentEvent::SubagentStarted { .. } | AgentEvent::SubagentStopped { .. }
-    ) {
+    if matches!(ev.kind, AgentEvent::SubagentStarted { .. } | AgentEvent::SubagentStopped { .. }) {
         ev.subagent_id = None;
     }
     vec![ev]
@@ -275,10 +235,7 @@ pub fn parse_questions(input: &Value) -> Vec<Question> {
                         })
                     })
                     .collect(),
-                multi_select: q
-                    .get("multiSelect")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                multi_select: q.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
             })
         })
         .collect()
@@ -286,13 +243,8 @@ pub fn parse_questions(input: &Value) -> Vec<Question> {
 
 pub(super) fn prompt_kind(tool: &str, input: &Value) -> PromptKind {
     match tool {
-        "AskUserQuestion" => PromptKind::Question {
-            questions: parse_questions(input),
-        },
-        "ExitPlanMode" => PromptKind::Plan {
-            plan: s(input, "plan"),
-            plan_file_path: s(input, "planFilePath"),
-        },
+        "AskUserQuestion" => PromptKind::Question { questions: parse_questions(input) },
+        "ExitPlanMode" => PromptKind::Plan { plan: s(input, "plan"), plan_file_path: s(input, "planFilePath") },
         _ => PromptKind::Tool,
     }
 }
@@ -301,11 +253,8 @@ fn running_background_tasks(p: &Value) -> u32 {
     p.get("background_tasks")
         .and_then(Value::as_array)
         .map(|a| {
-            a.iter()
-                .filter(|t| {
-                    t.get("status").and_then(Value::as_str).unwrap_or("running") == "running"
-                })
-                .count() as u32
+            a.iter().filter(|t| t.get("status").and_then(Value::as_str).unwrap_or("running") == "running").count()
+                as u32
         })
         .unwrap_or(0)
 }

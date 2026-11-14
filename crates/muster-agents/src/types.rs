@@ -111,11 +111,7 @@ pub enum SessionSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AgentEvent {
     SessionStarted {
         source: SessionSource,
@@ -224,11 +220,7 @@ pub struct PermissionRequest {
 
 /// The shape of a prompt the user must answer.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PromptKind {
     /// Allow or deny a tool call: answer with [`PermissionDecision::Allow`] / `Deny`.
     #[default]
@@ -238,10 +230,7 @@ pub enum PromptKind {
     Question { questions: Vec<Question> },
     /// A plan waiting for approval (Claude Code `ExitPlanMode`): answer with
     /// [`PermissionDecision::ApprovePlan`], or `Deny` with a message to keep planning.
-    Plan {
-        plan: Option<String>,
-        plan_file_path: Option<String>,
-    },
+    Plan { plan: Option<String>, plan_file_path: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -266,11 +255,7 @@ pub struct QuestionOption {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "behavior",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "behavior", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PermissionDecision {
     /// Allow this call. With `remember`, also apply the agent's own suggested rules (for
     /// Claude Code: `permission_suggestions` passed back as `updatedPermissions`).
@@ -287,9 +272,7 @@ pub enum PermissionDecision {
     },
     /// Answer a [`PromptKind::Question`]: question text → chosen option labels (several
     /// for multi-select). A value that is not one of the labels is passed as free text.
-    Answer {
-        answers: std::collections::BTreeMap<String, Vec<String>>,
-    },
+    Answer { answers: std::collections::BTreeMap<String, Vec<String>> },
     /// Approve a [`PromptKind::Plan`]. `accept_edits` leaves plan mode into accept-edits
     /// mode instead of the default (ask before edits) mode.
     ApprovePlan {
@@ -413,21 +396,14 @@ impl CommandSpec {
         if self.env.is_empty() {
             return self.shell_line();
         }
-        let env: Vec<String> = self
-            .env
-            .iter()
-            .map(|(k, v)| shell_quote(&format!("{k}={v}")))
-            .collect();
+        let env: Vec<String> = self.env.iter().map(|(k, v)| shell_quote(&format!("{k}={v}"))).collect();
         format!("env {} {}", env.join(" "), self.shell_line())
     }
 }
 
 /// Quote for POSIX sh. Leaves simple words alone.
 pub fn shell_quote(s: &str) -> String {
-    if !s.is_empty()
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b))
-    {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b)) {
         return s.to_string();
     }
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -456,11 +432,7 @@ pub enum ChatRole {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ChatPart {
     Text {
         text: String,

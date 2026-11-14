@@ -25,23 +25,10 @@ fn run(args: &[&str], env: &[(&str, &str)], stdin: &str) -> (String, Duration, i
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
     let out = child.wait_with_output().unwrap();
-    (
-        String::from_utf8(out.stdout).unwrap(),
-        start.elapsed(),
-        out.status.code().unwrap_or(-1),
-    )
+    (String::from_utf8(out.stdout).unwrap(), start.elapsed(), out.status.code().unwrap_or(-1))
 }
 
 #[test]
@@ -56,10 +43,7 @@ fn daemon_down_fails_open_fast() {
     let sock = d.join("none.sock");
     let (out, took, code) = run(
         &["hook", "PermissionRequest", "--wait", "30"],
-        &[
-            ("MUSTER_CARD_ID", "c"),
-            ("MUSTER_HOOK_SOCK", sock.to_str().unwrap()),
-        ],
+        &[("MUSTER_CARD_ID", "c"), ("MUSTER_HOOK_SOCK", sock.to_str().unwrap())],
         "{\"a\":1}",
     );
     assert_eq!((out.as_str(), code), ("", 0));
@@ -92,19 +76,13 @@ fn forwards_one_line_and_prints_reply() {
     );
     assert_eq!((out.as_str(), code), ("{\"decision\":1}\n", 0));
     let line = server.join().unwrap();
-    assert!(
-        line.ends_with('\n') && line.matches('\n').count() == 1,
-        "single line: {line:?}"
-    );
+    assert!(line.ends_with('\n') && line.matches('\n').count() == 1, "single line: {line:?}");
     let v: serde_like::Value = serde_like::parse(&line);
     assert_eq!(v.get("cardId"), "card \"7\"");
     assert_eq!(v.get("event"), "PermissionRequest");
     assert!(line.contains("\"wantsReply\":true"));
     assert_eq!(v.get("secret"), "abc123");
-    assert!(
-        line.contains(r#""command": "echo \"hi\"\n""#),
-        "payload kept verbatim: {line}"
-    );
+    assert!(line.contains(r#""command": "echo \"hi\"\n""#), "payload kept verbatim: {line}");
 }
 
 #[test]
@@ -120,17 +98,11 @@ fn reply_timeout_prints_nothing() {
     });
     let (out, took, code) = run(
         &["hook", "PermissionRequest", "--wait", "1"],
-        &[
-            ("MUSTER_CARD_ID", "c"),
-            ("MUSTER_HOOK_SOCK", sock.to_str().unwrap()),
-        ],
+        &[("MUSTER_CARD_ID", "c"), ("MUSTER_HOOK_SOCK", sock.to_str().unwrap())],
         "{}",
     );
     assert_eq!((out.as_str(), code), ("", 0));
-    assert!(
-        took >= Duration::from_millis(900) && took < Duration::from_millis(2500),
-        "took {took:?}"
-    );
+    assert!(took >= Duration::from_millis(900) && took < Duration::from_millis(2500), "took {took:?}");
     server.join().unwrap();
 }
 
@@ -159,11 +131,7 @@ fn statusline_forwards_and_chains() {
     let line = server.join().unwrap();
     assert!(line.contains("\"kind\":\"statusline\""));
     // without Muster env the chain still runs
-    let (out, _, _) = run(
-        &["statusline"],
-        &[("MUSTER_STATUSLINE_CHAIN", "echo plain")],
-        "{}",
-    );
+    let (out, _, _) = run(&["statusline"], &[("MUSTER_STATUSLINE_CHAIN", "echo plain")], "{}");
     assert_eq!(out, "plain\n");
 }
 
@@ -179,14 +147,7 @@ fn non_json_payload_becomes_null() {
         BufReader::new(&s).read_line(&mut line).unwrap();
         line
     });
-    run(
-        &["hook", "Stop"],
-        &[
-            ("MUSTER_CARD_ID", "c"),
-            ("MUSTER_HOOK_SOCK", sock.to_str().unwrap()),
-        ],
-        "garbage\nmore",
-    );
+    run(&["hook", "Stop"], &[("MUSTER_CARD_ID", "c"), ("MUSTER_HOOK_SOCK", sock.to_str().unwrap())], "garbage\nmore");
     assert!(server.join().unwrap().ends_with("\"payload\":null}\n"));
 }
 

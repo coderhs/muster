@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    # The daemon uses macOS-only APIs and its tests drive a real tmux server.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: brew install tmux
+      - uses: Swatinem/rust-cache@v2
+      - run: mise exec -- rustup component add rustfmt clippy
+      - run: mise exec -- cargo fmt --all --check
+      - run: mise exec -- cargo clippy --workspace --all-targets -- -D warnings
+      - run: mise exec -- cargo test --workspace --no-fail-fast
+
+  app:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise exec -- npm ci
+      - run: mise exec -- npm run check
+      - run: mise exec -- npm test
+      - run: mise exec -- npm run build

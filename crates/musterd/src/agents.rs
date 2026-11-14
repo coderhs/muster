@@ -14,9 +14,9 @@ use muster_core::store::{title_source, AgentState};
 use muster_core::util::{err, now_ms};
 use muster_core::Result;
 use muster_proto::{
-    ApprovalAnswerParams, ApprovalDecision, ApprovalKind, ApprovalOption, ApprovalQuestion, Card, CardStatus, ChatAppended, ChatMessage, ChatPageParams,
-    ChatPageResult, ContextInfo, ErrorCode, Event, LimitWindow, PendingApproval, UsageChanged, UsageInfo,
-    AgentCapabilities, NamedWindow, StatusSource,
+    AgentCapabilities, ApprovalAnswerParams, ApprovalDecision, ApprovalKind, ApprovalOption, ApprovalQuestion, Card,
+    CardStatus, ChatAppended, ChatMessage, ChatPageParams, ChatPageResult, ContextInfo, ErrorCode, Event, LimitWindow,
+    NamedWindow, PendingApproval, StatusSource, UsageChanged, UsageInfo,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -203,7 +203,9 @@ impl Agents {
         };
         let Some(hook_bin) = find_hook_bin() else {
             log!("muster-hook not found next to musterd (set MUSTER_HOOK_BIN); agents run without status hooks");
-            agents.hook_problem = Some("The muster-hook program was not found next to musterd, so agents run without live status.".into());
+            agents.hook_problem = Some(
+                "The muster-hook program was not found next to musterd, so agents run without live status.".into(),
+            );
             return (agents, None);
         };
         let sock = home.join("hook.sock");
@@ -570,7 +572,12 @@ impl Agents {
     }
 
     /// The newest `limit` transcript messages of a card, if it has a transcript.
-    pub fn transcript_messages(&self, st: &State, card: &Card, limit: usize) -> Option<Vec<muster_agents::ChatMessage>> {
+    pub fn transcript_messages(
+        &self,
+        st: &State,
+        card: &Card,
+        limit: usize,
+    ) -> Option<Vec<muster_agents::ChatMessage>> {
         let (adapter, path) = self.transcript(st, card).filter(|(_, p)| p.is_file())?;
         blocking(|| adapter.read_chat(&path, None, limit)).ok().map(|p| p.messages)
     }
@@ -666,7 +673,10 @@ impl Agents {
             sub.end = page.end;
         }
         if !page.messages.is_empty() {
-            let ev = Event::ChatAppended(ChatAppended { card_id: card.id.clone(), messages: convert_messages(page.messages) });
+            let ev = Event::ChatAppended(ChatAppended {
+                card_id: card.id.clone(),
+                messages: convert_messages(page.messages),
+            });
             st.clients.send_to(&conns, &ev);
         }
     }
@@ -678,9 +688,11 @@ impl Agents {
             ApprovalDecision::Allow => PermissionDecision::Allow { remember: p.remember },
             ApprovalDecision::Deny => PermissionDecision::Deny { message: p.message.clone(), interrupt: false },
             ApprovalDecision::Answer => PermissionDecision::Answer {
-                answers: p.answers.clone().filter(|a| !a.is_empty()).ok_or_else(|| {
-                    err(ErrorCode::Invalid, "decision \"answer\" needs answers")
-                })?,
+                answers: p
+                    .answers
+                    .clone()
+                    .filter(|a| !a.is_empty())
+                    .ok_or_else(|| err(ErrorCode::Invalid, "decision \"answer\" needs answers"))?,
             },
             ApprovalDecision::ApprovePlan => PermissionDecision::ApprovePlan { accept_edits: p.accept_edits },
         };
@@ -757,7 +769,10 @@ impl Agents {
                                 options: q
                                     .options
                                     .iter()
-                                    .map(|o| ApprovalOption { label: o.label.clone(), description: o.description.clone() })
+                                    .map(|o| ApprovalOption {
+                                        label: o.label.clone(),
+                                        description: o.description.clone(),
+                                    })
                                     .collect(),
                                 multi_select: q.multi_select,
                             })
@@ -874,7 +889,11 @@ impl Agents {
                 if let Some(a) = self.adapter(&card.agent_id) {
                     let valid = a.validate_transcript_path(Path::new(path));
                     if let Some(Ok(Some(c))) = valid.map(|p| blocking(|| a.context_usage(&p))) {
-                        context = Some(ContextInfo { used_tokens: c.used_tokens, window_tokens: c.window_tokens, percent: c.used_percent });
+                        context = Some(ContextInfo {
+                            used_tokens: c.used_tokens,
+                            window_tokens: c.window_tokens,
+                            percent: c.used_percent,
+                        });
                     }
                 }
             }
@@ -900,8 +919,16 @@ impl Agents {
         }
         if let Some(c) = saved {
             let visible = |c: &Card| {
-                (c.status, c.status_since, c.turn_started_at, c.unread, c.agent_session_id.clone(), c.needs_you_reason.clone(),
-                 c.pending_approval.clone(), c.context.clone())
+                (
+                    c.status,
+                    c.status_since,
+                    c.turn_started_at,
+                    c.unread,
+                    c.agent_session_id.clone(),
+                    c.needs_you_reason.clone(),
+                    c.pending_approval.clone(),
+                    c.context.clone(),
+                )
             };
             // lastActivityAt alone changes on every event; it is sent with the next
             // visible change rather than as a stream of card.changed.
@@ -1031,7 +1058,11 @@ impl Agents {
                 if to == CardStatus::Idle && s.busy {
                     to = CardStatus::Running;
                 }
-                context = s.context.map(|c| ContextInfo { used_tokens: c.used_tokens, window_tokens: c.window_tokens, percent: c.used_percent });
+                context = s.context.map(|c| ContextInfo {
+                    used_tokens: c.used_tokens,
+                    window_tokens: c.window_tokens,
+                    percent: c.used_percent,
+                });
             }
         }
         if card.status == to && (context.is_none() || context == card.context) {
@@ -1075,9 +1106,12 @@ impl Agents {
             let deadline = std::time::Instant::now() + FIND_SESSION_FOR;
             let found = loop {
                 let r = if resumed {
-                    card.agent_session_id.as_deref().and_then(|s| adapter.transcript_path(s, Path::new(&card.cwd))).map(|p| {
-                        muster_agents::adapter::SessionRef { session_id: card.agent_session_id.clone().unwrap(), transcript: Some(p) }
-                    })
+                    card.agent_session_id.as_deref().and_then(|s| adapter.transcript_path(s, Path::new(&card.cwd))).map(
+                        |p| muster_agents::adapter::SessionRef {
+                            session_id: card.agent_session_id.clone().unwrap(),
+                            transcript: Some(p),
+                        },
+                    )
                 } else {
                     adapter.find_session(Path::new(&card.cwd), now)
                 };
@@ -1097,7 +1131,8 @@ impl Agents {
                 ca.tracker.transcript_path = found.transcript.as_ref().map(|p| p.to_string_lossy().into_owned());
                 if resumed {
                     // Skip the history of a resumed session.
-                    ca.log_offset = found.transcript.as_ref().and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
+                    ca.log_offset =
+                        found.transcript.as_ref().and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
                 }
             }
             if !resumed {

@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 use muster_proto::ErrorCode;
 
 use crate::pty::Pty;
-use tokio::process::Child;
 use crate::tmux::SessionBackend;
 use crate::util::{err, internal, Result};
+use tokio::process::Child;
 
 /// Receives output bytes; returns `false` if the subscriber is gone.
 pub type Sink = Arc<dyn Fn(&[u8]) -> bool + Send + Sync>;
@@ -58,10 +58,7 @@ impl Attachment {
 }
 
 fn wanted_size(subs: &HashMap<u64, Sub>) -> Option<(u16, u16)> {
-    subs.values()
-            .filter(|s| !s.watch)
-            .map(|s| (s.cols, s.rows))
-        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))
+    subs.values().filter(|s| !s.watch).map(|s| (s.cols, s.rows)).reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))
 }
 
 /// tmux draws pane alternate screens itself, so its client only sends
@@ -270,7 +267,13 @@ impl<B: SessionBackend> Hub<B> {
 
     /// Sessions `conn` is attached to.
     pub fn cards_of(&self, conn: u64) -> Vec<String> {
-        self.sessions.lock().unwrap().iter().filter(|(_, a)| a.subs.contains_key(&conn)).map(|(k, _)| k.clone()).collect()
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, a)| a.subs.contains_key(&conn))
+            .map(|(k, _)| k.clone())
+            .collect()
     }
 
     /// Removes `conn` from every session (connection closed).

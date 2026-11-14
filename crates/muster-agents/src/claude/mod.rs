@@ -41,33 +41,21 @@ impl Default for ClaudeCode {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))
             .unwrap_or_else(|| PathBuf::from(".claude"));
-        ClaudeCode {
-            program: "claude".into(),
-            config_dir,
-        }
+        ClaudeCode { program: "claude".into(), config_dir }
     }
 }
 
 impl ClaudeCode {
     /// Write (if changed) the per-launch settings file and return its path.
-    pub fn write_settings(
-        &self,
-        hooks: &HookConfig,
-        user_statusline: Option<&Value>,
-    ) -> io::Result<PathBuf> {
+    pub fn write_settings(&self, hooks: &HookConfig, user_statusline: Option<&Value>) -> io::Result<PathBuf> {
         let dir = hooks.state_dir.join("claude");
         std::fs::create_dir_all(&dir)?;
-        let content = serde_json::to_string_pretty(&settings_json(hooks, user_statusline))
-            .map_err(io::Error::other)?;
+        let content = serde_json::to_string_pretty(&settings_json(hooks, user_statusline)).map_err(io::Error::other)?;
         // One file per distinct content (the status line padding may differ per project).
         let name = format!("settings-{:016x}.json", fnv1a(content.as_bytes()));
         let path = dir.join(name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(content.as_str()) {
-            let tmp = dir.join(format!(
-                ".tmp-{}-{}",
-                std::process::id(),
-                fnv1a(content.as_bytes())
-            ));
+            let tmp = dir.join(format!(".tmp-{}-{}", std::process::id(), fnv1a(content.as_bytes())));
             std::fs::write(&tmp, &content)?;
             std::fs::rename(&tmp, &path)?;
         }
@@ -86,35 +74,22 @@ impl ClaudeCode {
             }
         }
         if let Some(h) = &spec.hooks {
-            let user_sl = if h.capture_statusline {
-                user_statusline_command(&self.config_dir, &spec.cwd)
-            } else {
-                None
-            };
+            let user_sl =
+                if h.capture_statusline { user_statusline_command(&self.config_dir, &spec.cwd) } else { None };
             let settings = self.write_settings(h, user_sl.as_ref())?;
             args.extend(["--settings".into(), settings.to_string_lossy().into_owned()]);
             env.push(("MUSTER_CARD_ID".into(), spec.card_id.clone()));
             env.push(("MUSTER_AGENT_ID".into(), self.id().into()));
-            env.push((
-                "MUSTER_HOOK_SOCK".into(),
-                h.sock.to_string_lossy().into_owned(),
-            ));
+            env.push(("MUSTER_HOOK_SOCK".into(), h.sock.to_string_lossy().into_owned()));
             if let Some(secret) = &spec.hook_secret {
                 env.push(("MUSTER_HOOK_SECRET".into(), secret.clone()));
             }
-            if let Some(cmd) = user_sl
-                .as_ref()
-                .and_then(|v| v.get("command"))
-                .and_then(Value::as_str)
-            {
+            if let Some(cmd) = user_sl.as_ref().and_then(|v| v.get("command")).and_then(Value::as_str) {
                 env.push(("MUSTER_STATUSLINE_CHAIN".into(), cmd.to_string()));
             }
         }
         if let Some(f) = &spec.instructions {
-            args.extend([
-                "--append-system-prompt-file".into(),
-                f.to_string_lossy().into_owned(),
-            ]);
+            args.extend(["--append-system-prompt-file".into(), f.to_string_lossy().into_owned()]);
         }
         if let Some(d) = &spec.skills_dir {
             // Variadic option: the prompt is separated by `--` below.
@@ -136,11 +111,8 @@ impl ClaudeCode {
 
     /// `~/.claude/projects/<cwd with every non-alphanumeric char replaced by '-'>`.
     pub fn project_dir(&self, cwd: &Path) -> PathBuf {
-        let s: String = cwd
-            .to_string_lossy()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
+        let s: String =
+            cwd.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
         self.config_dir.join("projects").join(s)
     }
 }
@@ -192,10 +164,7 @@ impl AgentAdapter for ClaudeCode {
             return false;
         }
         let p = &envelope.payload;
-        let name = p
-            .get("hook_event_name")
-            .and_then(Value::as_str)
-            .unwrap_or(&envelope.event);
+        let name = p.get("hook_event_name").and_then(Value::as_str).unwrap_or(&envelope.event);
         match name {
             // The guarded call ran (or failed): its prompt was answered in the terminal.
             "PostToolUse" | "PostToolUseFailure" => {
@@ -208,11 +177,7 @@ impl AgentAdapter for ClaudeCode {
         }
     }
 
-    fn permission_reply(
-        &self,
-        request: &PermissionRequest,
-        decision: &PermissionDecision,
-    ) -> String {
+    fn permission_reply(&self, request: &PermissionRequest, decision: &PermissionDecision) -> String {
         let decision = match decision {
             PermissionDecision::Allow { remember } => {
                 let mut d = json!({"behavior": "allow"});
@@ -225,10 +190,7 @@ impl AgentAdapter for ClaudeCode {
                         .into_iter()
                         .flatten()
                         .filter(|s| {
-                            matches!(
-                                s.get("type").and_then(Value::as_str),
-                                Some("addRules" | "addDirectories")
-                            )
+                            matches!(s.get("type").and_then(Value::as_str), Some("addRules" | "addDirectories"))
                         })
                         .cloned()
                         .collect();
@@ -245,33 +207,29 @@ impl AgentAdapter for ClaudeCode {
                 if !input.is_object() {
                     input = json!({});
                 }
-                let map: serde_json::Map<String, Value> = answers
-                    .iter()
-                    .map(|(q, labels)| (q.clone(), Value::String(labels.join(", "))))
-                    .collect();
+                let map: serde_json::Map<String, Value> =
+                    answers.iter().map(|(q, labels)| (q.clone(), Value::String(labels.join(", ")))).collect();
                 input["answers"] = Value::Object(map);
                 json!({"behavior": "allow", "updatedInput": input})
             }
             PermissionDecision::ApprovePlan { accept_edits } => {
                 let mut d = json!({"behavior": "allow", "updatedInput": request.input.clone()});
                 if *accept_edits {
-                    d["updatedPermissions"] = json!([{"type": "setMode", "mode": "acceptEdits", "destination": "session"}]);
+                    d["updatedPermissions"] =
+                        json!([{"type": "setMode", "mode": "acceptEdits", "destination": "session"}]);
                 }
                 d
             }
             PermissionDecision::Deny { message, interrupt } => {
                 let mut d = json!({"behavior": "deny"});
-                d["message"] = json!(message
-                    .clone()
-                    .unwrap_or_else(|| "Denied from Muster".into()));
+                d["message"] = json!(message.clone().unwrap_or_else(|| "Denied from Muster".into()));
                 if *interrupt {
                     d["interrupt"] = json!(true);
                 }
                 d
             }
         };
-        json!({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}})
-            .to_string()
+        json!({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}).to_string()
     }
 
     fn permission_keys(&self, decision: &PermissionDecision) -> Option<Vec<KeyInput>> {
@@ -300,28 +258,14 @@ impl AgentAdapter for ClaudeCode {
         }
         // The directory naming is Claude Code's business; fall back to a scan.
         let projects = self.config_dir.join("projects");
-        std::fs::read_dir(projects)
-            .ok()?
-            .flatten()
-            .map(|e| e.path().join(&file))
-            .find(|p| p.is_file())
+        std::fs::read_dir(projects).ok()?.flatten().map(|e| e.path().join(&file)).find(|p| p.is_file())
     }
 
-    fn read_chat(
-        &self,
-        transcript: &Path,
-        before: Option<u64>,
-        max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat(&self, transcript: &Path, before: Option<u64>, max_messages: usize) -> io::Result<ChatPage> {
         transcript::read_page(transcript, before, max_messages)
     }
 
-    fn read_chat_since(
-        &self,
-        transcript: &Path,
-        after: u64,
-        max_messages: usize,
-    ) -> io::Result<ChatPage> {
+    fn read_chat_since(&self, transcript: &Path, after: u64, max_messages: usize) -> io::Result<ChatPage> {
         transcript::read_since(transcript, after, max_messages)
     }
 
@@ -335,9 +279,7 @@ impl AgentAdapter for ClaudeCode {
 }
 
 fn fnv1a(b: &[u8]) -> u64 {
-    b.iter().fold(0xcbf29ce484222325u64, |h, &c| {
-        (h ^ c as u64).wrapping_mul(0x100000001b3)
-    })
+    b.iter().fold(0xcbf29ce484222325u64, |h, &c| (h ^ c as u64).wrapping_mul(0x100000001b3))
 }
 
 /// Random RFC 4122 version 4 UUID.
@@ -348,14 +290,7 @@ pub fn uuid_v4() -> io::Result<String> {
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    Ok(format!(
-        "{}-{}-{}-{}-{}",
-        &h[0..8],
-        &h[8..12],
-        &h[12..16],
-        &h[16..20],
-        &h[20..32]
-    ))
+    Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
 }
 
 /// One-line description of a tool call for badges, notifications and the chat view.
@@ -363,10 +298,7 @@ pub fn tool_summary(tool: &str, input: &Value) -> String {
     let field = |k: &str| input.get(k).and_then(Value::as_str);
     match tool {
         "AskUserQuestion" => {
-            let q = input
-                .pointer("/questions/0/question")
-                .and_then(Value::as_str)
-                .unwrap_or("question");
+            let q = input.pointer("/questions/0/question").and_then(Value::as_str).unwrap_or("question");
             return format!("Question: {}", one_line(q, 160));
         }
         "ExitPlanMode" => return "Plan ready for approval".to_string(),
@@ -374,9 +306,7 @@ pub fn tool_summary(tool: &str, input: &Value) -> String {
     }
     let detail = match tool {
         "Bash" => field("command"),
-        "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
-            field("file_path").or(field("notebook_path"))
-        }
+        "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => field("file_path").or(field("notebook_path")),
         "Glob" | "Grep" => field("pattern"),
         "WebFetch" => field("url"),
         "WebSearch" => field("query"),
@@ -384,11 +314,7 @@ pub fn tool_summary(tool: &str, input: &Value) -> String {
         _ => None,
     }
     .map(str::to_string)
-    .or_else(|| {
-        input
-            .as_object()
-            .and_then(|o| o.values().find_map(|v| v.as_str().map(str::to_string)))
-    });
+    .or_else(|| input.as_object().and_then(|o| o.values().find_map(|v| v.as_str().map(str::to_string))));
     match detail {
         Some(d) => format!("{tool}: {}", one_line(&d, 160)),
         None => tool.to_string(),
@@ -396,11 +322,7 @@ pub fn tool_summary(tool: &str, input: &Value) -> String {
 }
 
 pub(crate) fn one_line(s: &str, max: usize) -> String {
-    let first = s
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("");
+    let first = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
     let multi = s.trim().lines().count() > 1;
     let mut out: String = first.chars().take(max).collect();
     if first.chars().count() > max || multi {
@@ -423,10 +345,7 @@ mod tests {
 
     #[test]
     fn project_dir_mapping_matches_observed_names() {
-        let c = ClaudeCode {
-            program: "claude".into(),
-            config_dir: "/h/.claude".into(),
-        };
+        let c = ClaudeCode { program: "claude".into(), config_dir: "/h/.claude".into() };
         assert_eq!(
             c.project_dir(Path::new("/Users/user/sandbox/aiterm")),
             PathBuf::from("/h/.claude/projects/-Users-user-sandbox-aiterm")
@@ -439,14 +358,8 @@ mod tests {
 
     #[test]
     fn summaries() {
-        assert_eq!(
-            tool_summary("Bash", &json!({"command": "touch a\necho b"})),
-            "Bash: touch a…"
-        );
-        assert_eq!(
-            tool_summary("Edit", &json!({"file_path": "/x/y.rs", "old_string": "a"})),
-            "Edit: /x/y.rs"
-        );
+        assert_eq!(tool_summary("Bash", &json!({"command": "touch a\necho b"})), "Bash: touch a…");
+        assert_eq!(tool_summary("Edit", &json!({"file_path": "/x/y.rs", "old_string": "a"})), "Edit: /x/y.rs");
         assert_eq!(tool_summary("mcp__x__y", &json!({"n": 1})), "mcp__x__y");
     }
 
@@ -464,47 +377,34 @@ mod tests {
                 {"type": "setMode", "mode": "acceptEdits", "destination": "session"}
             ]),
         };
-        let allow: Value = serde_json::from_str(
-            &c.permission_reply(&req, &PermissionDecision::Allow { remember: false }),
-        )
-        .unwrap();
+        let allow: Value =
+            serde_json::from_str(&c.permission_reply(&req, &PermissionDecision::Allow { remember: false })).unwrap();
         assert_eq!(
             allow,
             json!({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}})
         );
-        let remember: Value = serde_json::from_str(
-            &c.permission_reply(&req, &PermissionDecision::Allow { remember: true }),
-        )
-        .unwrap();
+        let remember: Value =
+            serde_json::from_str(&c.permission_reply(&req, &PermissionDecision::Allow { remember: true })).unwrap();
         assert_eq!(
             remember["hookSpecificOutput"]["decision"]["updatedPermissions"],
             json!([{"type": "addDirectories", "directories": ["/p"], "destination": "session"}])
         );
-        let deny: Value = serde_json::from_str(&c.permission_reply(
-            &req,
-            &PermissionDecision::Deny {
-                message: Some("no".into()),
-                interrupt: true,
-            },
-        ))
+        let deny: Value = serde_json::from_str(
+            &c.permission_reply(&req, &PermissionDecision::Deny { message: Some("no".into()), interrupt: true }),
+        )
         .unwrap();
         assert_eq!(
             deny["hookSpecificOutput"]["decision"],
             json!({"behavior": "deny", "message": "no", "interrupt": true})
         );
         // the hook prints the reply as one line
-        assert!(!c
-            .permission_reply(&req, &PermissionDecision::Allow { remember: false })
-            .contains('\n'));
+        assert!(!c.permission_reply(&req, &PermissionDecision::Allow { remember: false }).contains('\n'));
     }
 
     #[test]
     fn launch_and_resume_commands() {
         let dir = std::env::temp_dir().join(format!("muster-agents-launch-{}", std::process::id()));
-        let c = ClaudeCode {
-            program: "claude".into(),
-            config_dir: dir.join("no-config"),
-        };
+        let c = ClaudeCode { program: "claude".into(), config_dir: dir.join("no-config") };
         let mut spec = LaunchSpec::new("card1", "/work/p");
         spec.session_id = Some("2f0c3f0e-8a5e-4c7c-9b1e-2d6f9a0b1c2d".into());
         spec.prompt = Some("-starts with a dash".into());
@@ -512,39 +412,19 @@ mod tests {
         h.approval_wait = std::time::Duration::from_secs(120);
         spec.hooks = Some(h);
         let cmd = c.launch(&spec).unwrap();
-        assert_eq!(
-            cmd.args[0..2],
-            ["--session-id", "2f0c3f0e-8a5e-4c7c-9b1e-2d6f9a0b1c2d"]
-        );
+        assert_eq!(cmd.args[0..2], ["--session-id", "2f0c3f0e-8a5e-4c7c-9b1e-2d6f9a0b1c2d"]);
         assert_eq!(cmd.args[2], "--settings");
-        let settings: Value =
-            serde_json::from_str(&std::fs::read_to_string(&cmd.args[3]).unwrap()).unwrap();
+        let settings: Value = serde_json::from_str(&std::fs::read_to_string(&cmd.args[3]).unwrap()).unwrap();
         let pr = &settings["hooks"]["PermissionRequest"][0]["hooks"][0];
-        assert_eq!(
-            pr["args"],
-            json!(["hook", "PermissionRequest", "--wait", "120"])
-        );
+        assert_eq!(pr["args"], json!(["hook", "PermissionRequest", "--wait", "120"]));
         assert_eq!(pr["timeout"], json!(150));
-        assert_eq!(
-            settings["statusLine"]["command"],
-            json!("/opt/muster-hook statusline")
-        );
+        assert_eq!(settings["statusLine"]["command"], json!("/opt/muster-hook statusline"));
         assert_eq!(cmd.args[4..], ["--", "-starts with a dash"]);
         assert!(cmd.env.contains(&("MUSTER_CARD_ID".into(), "card1".into())));
-        assert!(cmd
-            .env
-            .contains(&("MUSTER_HOOK_SOCK".into(), "/tmp/m.sock".into())));
+        assert!(cmd.env.contains(&("MUSTER_HOOK_SOCK".into(), "/tmp/m.sock".into())));
         assert!(cmd.shell_line().ends_with("-- '-starts with a dash'"));
 
-        let r = c
-            .resume(
-                &LaunchSpec {
-                    prompt: None,
-                    ..spec.clone()
-                },
-                "abc",
-            )
-            .unwrap();
+        let r = c.resume(&LaunchSpec { prompt: None, ..spec.clone() }, "abc").unwrap();
         assert_eq!(r.args[0..2], ["--resume", "abc"]);
         assert!(!r.args.contains(&"--session-id".to_string()));
         assert!(!r.args.contains(&"--".to_string()));

@@ -46,12 +46,8 @@ fn forwards_plain_events() {
     let (r, rx) = bind(&d.join("h.sock"));
     let mut s = UnixStream::connect(r.path()).unwrap();
     s.write_all(
-        envelope(
-            "Stop",
-            false,
-            json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"}),
-        )
-        .as_bytes(),
+        envelope("Stop", false, json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"}))
+            .as_bytes(),
     )
     .unwrap();
     let ev = next(&rx);
@@ -67,22 +63,12 @@ fn permission_answered_through_receiver() {
     let d = sock_dir("answer");
     let (r, rx) = bind(&d.join("h.sock"));
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes())
-        .unwrap();
+    s.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes()).unwrap();
     let ev = next(&rx);
-    let AgentEvent::PermissionRequested { request } = ev.kind else {
-        panic!("{ev:?}")
-    };
+    let AgentEvent::PermissionRequested { request } = ev.kind else { panic!("{ev:?}") };
     let id = request.id.clone().expect("answerable");
     assert_eq!(r.pending().len(), 1);
-    r.answer(
-        &id,
-        &PermissionDecision::Deny {
-            message: Some("no".into()),
-            interrupt: false,
-        },
-    )
-    .unwrap();
+    r.answer(&id, &PermissionDecision::Deny { message: Some("no".into()), interrupt: false }).unwrap();
     let mut line = String::new();
     BufReader::new(&s).read_line(&mut line).unwrap();
     let v: Value = serde_json::from_str(&line).unwrap();
@@ -92,10 +78,7 @@ fn permission_answered_through_receiver() {
         matches!(ev.kind, AgentEvent::PermissionResolved { ref request_id, outcome: PermissionOutcome::Answered { .. } } if *request_id == id)
     );
     assert!(r.pending().is_empty());
-    assert!(matches!(
-        r.answer(&id, &PermissionDecision::Allow { remember: false }),
-        Err(AnswerError::NotFound)
-    ));
+    assert!(matches!(r.answer(&id, &PermissionDecision::Allow { remember: false }), Err(AnswerError::NotFound)));
     r.close();
 }
 
@@ -104,11 +87,8 @@ fn permission_hook_going_away_resolves_elsewhere() {
     let d = sock_dir("gone");
     let (r, rx) = bind(&d.join("h.sock"));
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes())
-        .unwrap();
-    let AgentEvent::PermissionRequested { request } = next(&rx).kind else {
-        panic!()
-    };
+    s.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes()).unwrap();
+    let AgentEvent::PermissionRequested { request } = next(&rx).kind else { panic!() };
     drop(s); // the agent killed the hook (user answered in the terminal)
     let ev = next(&rx);
     assert!(
@@ -123,20 +103,14 @@ fn reply_requested_for_non_permission_gets_empty_line() {
     let d = sock_dir("empty");
     let (r, rx) = bind(&d.join("h.sock"));
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("Stop", true, json!({"hook_event_name":"Stop"})).as_bytes())
-        .unwrap();
+    s.write_all(envelope("Stop", true, json!({"hook_event_name":"Stop"})).as_bytes()).unwrap();
     let mut line = String::new();
     BufReader::new(&s).read_line(&mut line).unwrap();
     assert_eq!(line, "\n");
     let _ = next(&rx);
     // unknown agent: still answered with an empty line, no event
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(
-        envelope("Stop", true, json!({}))
-            .replace("\"claude\"", "\"nope\"")
-            .as_bytes(),
-    )
-    .unwrap();
+    s.write_all(envelope("Stop", true, json!({})).replace("\"claude\"", "\"nope\"").as_bytes()).unwrap();
     let mut line = String::new();
     BufReader::new(&s).read_line(&mut line).unwrap();
     assert_eq!(line, "\n");
@@ -167,21 +141,34 @@ fn later_tool_event_releases_hook_answered_in_terminal() {
     let d = sock_dir("settle");
     let (r, rx) = bind(&d.join("h.sock"));
     let mut hook = UnixStream::connect(r.path()).unwrap();
-    hook.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes())
-        .unwrap();
-    let AgentEvent::PermissionRequested { request } = next(&rx).kind else {
-        panic!()
-    };
+    hook.write_all(envelope("PermissionRequest", true, perm_payload()).as_bytes()).unwrap();
+    let AgentEvent::PermissionRequested { request } = next(&rx).kind else { panic!() };
 
     // a different tool finishing does not settle it
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("PostToolUse", false, json!({"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"}})).as_bytes()).unwrap();
+    s.write_all(
+        envelope(
+            "PostToolUse",
+            false,
+            json!({"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}),
+        )
+        .as_bytes(),
+    )
+    .unwrap();
     assert!(matches!(next(&rx).kind, AgentEvent::ToolFinished { .. }));
     assert_eq!(r.pending().len(), 1);
 
     // the guarded call finishing does
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("PostToolUse", false, json!({"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"touch x"}})).as_bytes()).unwrap();
+    s.write_all(
+        envelope(
+            "PostToolUse",
+            false,
+            json!({"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"touch x"}}),
+        )
+        .as_bytes(),
+    )
+    .unwrap();
     let ev = next(&rx);
     assert!(
         matches!(ev.kind, AgentEvent::PermissionResolved { ref request_id, outcome: PermissionOutcome::Elsewhere } if Some(request_id) == request.id.as_ref()),
@@ -211,12 +198,7 @@ fn envelopes_without_the_cards_secret_are_dropped() {
         s.write_all(line.as_bytes()).unwrap();
     }
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(
-        envelope("PermissionRequest", true, perm_payload())
-            .replace(SECRET, "nope")
-            .as_bytes(),
-    )
-    .unwrap();
+    s.write_all(envelope("PermissionRequest", true, perm_payload()).replace(SECRET, "nope").as_bytes()).unwrap();
     let mut line = String::new();
     BufReader::new(&s).read_line(&mut line).unwrap();
     assert_eq!(line, "\n", "a forged permission request gets no answer");
@@ -225,8 +207,7 @@ fn envelopes_without_the_cards_secret_are_dropped() {
     assert!(r.pending().is_empty());
     // the right secret still works
     let mut s = UnixStream::connect(r.path()).unwrap();
-    s.write_all(envelope("Stop", false, stop).as_bytes())
-        .unwrap();
+    s.write_all(envelope("Stop", false, stop).as_bytes()).unwrap();
     assert!(matches!(next(&rx).kind, AgentEvent::TurnFinished { .. }));
     // after removal the card is refused again; migration mode accepts unregistered cards
     r.remove_card_secret("c1");
@@ -252,10 +233,7 @@ fn transcript_paths_outside_the_agents_root_are_removed() {
     std::fs::write(d.join("secret.txt"), "x").unwrap();
     // a symlink inside the root that points outside it
     std::os::unix::fs::symlink(d.join("secret.txt"), proj.join("evil.jsonl")).unwrap();
-    let claude = ClaudeCode {
-        program: "claude".into(),
-        config_dir: cfg.clone(),
-    };
+    let claude = ClaudeCode { program: "claude".into(), config_dir: cfg.clone() };
     let registry = AdapterRegistry::empty().with(std::sync::Arc::new(claude));
     let (r, rx) = HookReceiver::bind(&d.join("h.sock"), registry).unwrap();
     r.set_card_secret("c1", SECRET);

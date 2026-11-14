@@ -119,14 +119,19 @@ mod imp {
         content.setBody(&NSString::from_str(body));
         content.setSound(Some(&UNNotificationSound::defaultSound()));
         content.setThreadIdentifier(&NSString::from_str(card_id));
-        let ident = format!("card:{card_id}:{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
-        let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&ident), &content, None);
+        let ident = format!(
+            "card:{card_id}:{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+        );
+        let req =
+            UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&ident), &content, None);
         let done = RcBlock::new(|err: *mut NSError| {
             if !err.is_null() {
                 eprintln!("muster: notification not delivered: {}", unsafe { &*err }.localizedDescription());
             }
         });
-        UNUserNotificationCenter::currentNotificationCenter().addNotificationRequest_withCompletionHandler(&req, Some(&done));
+        UNUserNotificationCenter::currentNotificationCenter()
+            .addNotificationRequest_withCompletionHandler(&req, Some(&done));
     }
 
     /// Posts a notification, asking for permission first if it has not been asked yet.
@@ -142,14 +147,18 @@ mod imp {
                     } else {
                         set(Status::Denied);
                         if !err.is_null() {
-                            eprintln!("muster: notification permission error: {}", unsafe { &*err }.localizedDescription());
+                            eprintln!(
+                                "muster: notification permission error: {}",
+                                unsafe { &*err }.localizedDescription()
+                            );
                         }
                     }
                 });
-                UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(
-                    UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge,
-                    &block,
-                );
+                UNUserNotificationCenter::currentNotificationCenter()
+                    .requestAuthorizationWithOptions_completionHandler(
+                        UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge,
+                        &block,
+                    );
             }
             // Requesting: drop this one; Denied/Unavailable: nothing to do.
             _ => {}

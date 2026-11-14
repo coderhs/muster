@@ -16,8 +16,11 @@ use crate::util::{err, hex, internal, shell_quote, Result};
 
 pub const SESSION_PREFIX: &str = "m-";
 
-/// Bytes per `send-keys -H` call.
+/// Most bytes per `send-keys -H` call. tmux limits the length of one command, and the
+/// limit differs between versions (3.8 refuses what 3.5 accepts), so the backend
+/// starts here and halves its chunk size whenever tmux answers "command too long".
 const SEND_CHUNK: usize = 2048;
+const SEND_CHUNK_MIN: usize = 16;
 pub const CONTROL_SESSION: &str = "muster-ctl";
 
 pub fn session_name(card_id: &str) -> String {
@@ -91,6 +94,8 @@ pub struct TmuxBackend {
     config: PathBuf,
     exit_dir: PathBuf,
     shell: String,
+    /// Bytes per `send-keys -H` call that this tmux has not refused yet.
+    send_chunk: std::sync::atomic::AtomicUsize,
 }
 
 /// Finds the tmux binary: `MUSTER_TMUX`, then PATH, then common locations
@@ -130,10 +135,12 @@ const FALLBACK_LOCALE: &str = "en_US.UTF-8";
 
 /// Whether the daemon's own environment names a UTF-8 locale.
 fn has_utf8_locale() -> bool {
-    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).is_some_and(|v| {
-        let v = v.to_ascii_lowercase();
-        v.contains("utf-8") || v.contains("utf8")
-    })
+    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).is_some_and(
+        |v| {
+            let v = v.to_ascii_lowercase();
+            v.contains("utf-8") || v.contains("utf8")
+        },
+    )
 }
 
 fn config_text(tmux: &Path, exit_dir: &Path) -> String {
@@ -190,7 +197,14 @@ impl TmuxBackend {
         std::fs::create_dir_all(&exit_dir).map_err(internal)?;
         let config = home.join("tmux.conf");
         std::fs::write(&config, config_text(&tmux, &exit_dir)).map_err(internal)?;
-        Ok(TmuxBackend { tmux, socket: socket.to_string(), config, exit_dir, shell: login_shell() })
+        Ok(TmuxBackend {
+            tmux,
+            socket: socket.to_string(),
+            config,
+            exit_dir,
+            shell: login_shell(),
+            send_chunk: std::sync::atomic::AtomicUsize::new(SEND_CHUNK),
+        })
     }
 
     /// Whether a tmux binary was found.
@@ -301,10 +315,25 @@ impl TmuxBackend {
         let activity = if activity { "on" } else { "off" };
         let _ = self
             .run([
-                "set-option", "-w", "-t", &win, "monitor-silence", &silence, ";",
-                "set-option", "-w", "-t", &win, "monitor-activity", activity, ";",
+                "set-option",
+                "-w",
+                "-t",
+                &win,
+                "monitor-silence",
+                &silence,
+                ";",
+                "set-option",
+                "-w",
+                "-t",
+                &win,
+                "monitor-activity",
+                activity,
+                ";",
                 // Clear earlier alerts so the next one fires.
-                "kill-session", "-C", "-t", &sess,
+                "kill-session",
+                "-C",
+                "-t",
+                &sess,
             ])
             .await;
     }
@@ -444,7 +473,13 @@ impl SessionBackend for TmuxBackend {
 
     async fn window_size(&self, card_id: &str) -> Option<(u16, u16)> {
         let out = self
-            .run(["display-message", "-p", "-t", &format!("={}:", session_name(card_id)), "#{window_width} #{window_height}"])
+            .run([
+                "display-message",
+                "-p",
+                "-t",
+                &format!("={}:", session_name(card_id)),
+                "#{window_width} #{window_height}",
+            ])
             .await
             .ok()?;
         let mut it = out.split_whitespace().map(|s| s.parse::<u16>().ok());
@@ -458,10 +493,21 @@ impl SessionBackend for TmuxBackend {
         // One argument per byte: send in chunks so large input stays far below the
         // argument-size limit. Chunks are sent in order, one tmux call each.
         let target = format!("={}:", session_name(card_id));
-        for chunk in data.chunks(SEND_CHUNK) {
+        use std::sync::atomic::Ordering;
+        let mut rest = data;
+        while !rest.is_empty() {
+            let size = self.send_chunk.load(Ordering::Relaxed).min(rest.len());
             let mut args: Vec<String> = vec!["send-keys".into(), "-t".into(), target.clone(), "-H".into()];
-            args.extend(chunk.iter().map(|b| hex(&[*b])));
-            self.run(&args).await?;
+            args.extend(rest[..size].iter().map(|b| hex(&[*b])));
+            match self.run(&args).await {
+                Ok(_) => rest = &rest[size..],
+                // Nothing was sent: retry the same bytes in smaller pieces, and remember
+                // the size for later calls.
+                Err(e) if e.msg.contains("too long") && size > SEND_CHUNK_MIN => {
+                    self.send_chunk.store((size / 2).max(SEND_CHUNK_MIN), Ordering::Relaxed);
+                }
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
     }
@@ -493,7 +539,13 @@ impl SessionBackend for TmuxBackend {
             .map_err(|e| internal(format!("tmux control client: {e}")))?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().ok_or_else(|| internal("no control stdout"))?;
-        Ok(ControlWatch { tmux: self.tmux.clone(), socket: self.socket.clone(), _child: child, _stdin: stdin, lines: BufReader::new(stdout).lines() })
+        Ok(ControlWatch {
+            tmux: self.tmux.clone(),
+            socket: self.socket.clone(),
+            _child: child,
+            _stdin: stdin,
+            lines: BufReader::new(stdout).lines(),
+        })
     }
 
     async fn unwatch(&self) {
@@ -523,7 +575,9 @@ impl SessionWatch for ControlWatch {
             }
             if let Some(name) = line.strip_prefix("%paste-buffer-changed ") {
                 let name = name.trim();
-                let card = |mark: &str| name.strip_prefix(mark).and_then(|s| s.strip_prefix(SESSION_PREFIX)).map(str::to_string);
+                let card = |mark: &str| {
+                    name.strip_prefix(mark).and_then(|s| s.strip_prefix(SESSION_PREFIX)).map(str::to_string)
+                };
                 if let Some(card_id) = card(SILENCE_MARK) {
                     return Some(WatchEvent::Silence { card_id });
                 }

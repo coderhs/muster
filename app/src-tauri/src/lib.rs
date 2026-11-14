@@ -155,10 +155,7 @@ fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         app,
         "Window",
         true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::maximize(app, None)?,
-        ],
+        &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?],
     )?;
     Menu::with_items(app, &[&muster, &edit, &view, &window])
 }
@@ -180,7 +177,14 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingOpen::default())
-        .invoke_handler(tauri::generate_handler![daemon_info, start_daemon, take_pending_open, get_notify, set_notify, notify_status])
+        .invoke_handler(tauri::generate_handler![
+            daemon_info,
+            start_daemon,
+            take_pending_open,
+            get_notify,
+            set_notify,
+            notify_status
+        ])
         .setup(|app| {
             let enabled = notify_file(app.handle())
                 .and_then(|p| std::fs::read_to_string(p).ok())

@@ -61,17 +61,10 @@ struct Target {
 
 fn target() -> Option<Target> {
     let card_id = env::var("MUSTER_CARD_ID").ok().filter(|s| !s.is_empty())?;
-    let sock = env::var("MUSTER_HOOK_SOCK")
-        .ok()
-        .filter(|s| !s.is_empty())?;
+    let sock = env::var("MUSTER_HOOK_SOCK").ok().filter(|s| !s.is_empty())?;
     let agent_id = env::var("MUSTER_AGENT_ID").unwrap_or_default();
     let secret = env::var("MUSTER_HOOK_SECRET").unwrap_or_default();
-    Some(Target {
-        card_id,
-        agent_id,
-        sock,
-        secret,
-    })
+    Some(Target { card_id, agent_id, sock, secret })
 }
 
 fn read_stdin() -> (Vec<u8>, bool) {
@@ -106,10 +99,7 @@ fn hook(args: &[String]) {
     let mut i = 2;
     while i < args.len() {
         if args[i] == "--wait" {
-            wait = args
-                .get(i + 1)
-                .and_then(|s| s.parse().ok())
-                .map(|w: u64| w.min(MAX_WAIT_SECS));
+            wait = args.get(i + 1).and_then(|s| s.parse().ok()).map(|w: u64| w.min(MAX_WAIT_SECS));
             i += 1;
         }
         i += 1;
@@ -163,14 +153,7 @@ fn statusline() {
     }
 }
 
-fn envelope(
-    kind: &str,
-    event: &str,
-    t: &Target,
-    wants_reply: bool,
-    payload: &[u8],
-    truncated: bool,
-) -> Vec<u8> {
+fn envelope(kind: &str, event: &str, t: &Target, wants_reply: bool, payload: &[u8], truncated: bool) -> Vec<u8> {
     let mut line = Vec::with_capacity(payload.len() + 256);
     line.extend_from_slice(b"{\"v\":1,\"kind\":");
     push_json_str(&mut line, kind);
@@ -186,11 +169,7 @@ fn envelope(
     }
     line.extend_from_slice(b",\"pid\":");
     line.extend_from_slice(parent_pid().to_string().as_bytes());
-    line.extend_from_slice(if wants_reply {
-        b",\"wantsReply\":true"
-    } else {
-        b",\"wantsReply\":false"
-    });
+    line.extend_from_slice(if wants_reply { b",\"wantsReply\":true" } else { b",\"wantsReply\":false" });
     if truncated {
         line.extend_from_slice(b",\"truncated\":true");
     }
@@ -200,12 +179,7 @@ fn envelope(
         // Raw CR/LF can only occur as insignificant whitespace in valid JSON (inside
         // strings they must be escaped), so dropping them keeps the document intact
         // and makes the envelope a single line.
-        line.extend(
-            trimmed
-                .iter()
-                .copied()
-                .filter(|&b| b != b'\n' && b != b'\r'),
-        );
+        line.extend(trimmed.iter().copied().filter(|&b| b != b'\n' && b != b'\r'));
     } else {
         line.extend_from_slice(b"null");
     }
@@ -214,14 +188,8 @@ fn envelope(
 }
 
 fn trim_ascii(b: &[u8]) -> &[u8] {
-    let start = b
-        .iter()
-        .position(|c| !c.is_ascii_whitespace())
-        .unwrap_or(b.len());
-    let end = b
-        .iter()
-        .rposition(|c| !c.is_ascii_whitespace())
-        .map_or(start, |e| e + 1);
+    let start = b.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(b.len());
+    let end = b.iter().rposition(|c| !c.is_ascii_whitespace()).map_or(start, |e| e + 1);
     &b[start..end]
 }
 
@@ -234,9 +202,7 @@ fn push_json_str(out: &mut Vec<u8>, s: &str) {
             '\n' => out.extend_from_slice(b"\\n"),
             '\r' => out.extend_from_slice(b"\\r"),
             '\t' => out.extend_from_slice(b"\\t"),
-            c if (c as u32) < 0x20 => {
-                out.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes())
-            }
+            c if (c as u32) < 0x20 => out.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes()),
             c => {
                 let mut b = [0u8; 4];
                 out.extend_from_slice(c.encode_utf8(&mut b).as_bytes());

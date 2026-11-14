@@ -111,7 +111,14 @@ async fn wait_card(c: &mut Client, card: &str, what: &str, pred: impl Fn(&Value)
         assert!(
             Instant::now() < deadline,
             "card never became {what}; last seen {last}; terminal: {}",
-            String::from_utf8_lossy(&c.output).chars().rev().take(600).collect::<String>().chars().rev().collect::<String>()
+            String::from_utf8_lossy(&c.output)
+                .chars()
+                .rev()
+                .take(600)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>()
         );
         c.pump().await;
     }
@@ -144,7 +151,12 @@ async fn claude_status_approvals_chat_usage_and_restart() {
     let lines: Vec<&str> = full.lines().collect();
     let transcript = transcript_dir(&env).join("transcript.jsonl");
     std::fs::write(&transcript, lines[..45].join("\n") + "\n").unwrap();
-    let sc = Scenario { dir: dir.clone(), payloads: fixture_payloads(), transcript: transcript.clone(), cwd: env.root.join("project") };
+    let sc = Scenario {
+        dir: dir.clone(),
+        payloads: fixture_payloads(),
+        transcript: transcript.clone(),
+        cwd: env.root.join("project"),
+    };
 
     let port = env.start_daemon();
     let mut c = Client::connect(port, &env.home).await;
@@ -157,7 +169,10 @@ async fn claude_status_approvals_chat_usage_and_restart() {
 
     // Launch: Muster picks the session id and passes hooks through --settings.
     let card = c
-        .call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "claude", "prompt": "do it", "start": true}))
+        .call(
+            "card.create",
+            json!({"projectId": pid, "columnId": col, "agentId": "claude", "prompt": "do it", "start": true}),
+        )
         .await
         .unwrap()["card"]
         .clone();
@@ -341,10 +356,8 @@ async fn quiet_terminal_settles_turn_and_shell_activity() {
         .as_str()
         .unwrap()
         .to_string();
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
     let card = c
         .call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "claude", "start": true}))
         .await
@@ -422,13 +435,12 @@ async fn automatic_titles() {
         .as_str()
         .unwrap()
         .to_string();
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
 
     // Shell card without a title: the cwd's name, maintained by the daemon.
-    let sh = c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "shell"})).await.unwrap()["card"]
+    let sh = c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "shell"})).await.unwrap()
+        ["card"]
         .clone();
     assert_eq!((sh["title"].as_str(), sh["titleAuto"].as_bool()), (Some("project"), Some(true)));
     let sh_id = sh["id"].as_str().unwrap();
@@ -437,8 +449,10 @@ async fn automatic_titles() {
     let u = c.call("card.update", json!({"id": sh_id, "titleAuto": true})).await.unwrap()["card"].clone();
     assert_eq!((u["title"].as_str(), u["titleAuto"].as_bool()), (Some("Mine"), Some(true)));
     // A typed title is never automatic.
-    let t = c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "shell", "title": "Typed"})).await.unwrap()
-        ["card"]
+    let t = c
+        .call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "shell", "title": "Typed"}))
+        .await
+        .unwrap()["card"]
         .clone();
     assert_eq!(t["titleAuto"], false);
 
@@ -489,10 +503,8 @@ async fn worktree_setup_runs_in_the_session() {
     let p = c.call("project.add", json!({"path": env.root.join("project")})).await.unwrap()["project"].clone();
     let pid = p["id"].as_str().unwrap().to_string();
     assert!(p.get("worktreeSetup").is_none());
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
     let script = "echo SETUP-RAN \"$MUSTER_BRANCH\" \"$(basename \"$MUSTER_WORKTREE_PATH\")\" \"$(basename \"$MUSTER_PROJECT_PATH\")\"\ntouch setup-marker\n";
     let u = c.call("project.update", json!({"id": pid, "worktreeSetup": script})).await.unwrap();
     assert_eq!(u["project"]["worktreeSetup"], script);
@@ -533,7 +545,8 @@ async fn worktree_setup_runs_in_the_session() {
     // The user fixes the script and starts again: setup reruns, then the agent starts.
     c.call("project.update", json!({"id": pid, "worktreeSetup": "echo FIXED\n"})).await.unwrap();
     c.call("card.start", json!({"id": bad})).await.unwrap();
-    let w = wait_card(&mut c, &bad, "set up after the fix", |k| k.get("setup").is_none() && k["status"] == "running").await;
+    let w =
+        wait_card(&mut c, &bad, "set up after the fix", |k| k.get("setup").is_none() && k["status"] == "running").await;
     assert!(w.get("needsYouReason").is_none());
     c.attach(&bad, 100, 30).await;
     c.wait_output("hook=found").await;
@@ -567,10 +580,8 @@ async fn quiet_terminal_settles_turn_with_nobody_attached() {
         .as_str()
         .unwrap()
         .to_string();
-    let col = c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
     let card = c
         .call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "claude", "start": true}))
         .await
@@ -609,9 +620,8 @@ async fn setup_project(c: &mut Client, env: &Env) -> (String, Vec<String>) {
 }
 
 async fn new_card(c: &mut Client, pid: &str, col: &str, agent: &str) -> Value {
-    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true}))
-        .await
-        .unwrap()["card"]
+    c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": agent, "start": true})).await.unwrap()
+        ["card"]
         .clone()
 }
 
@@ -679,7 +689,11 @@ fn low_battery() -> bool {
     let out = Command::new("/usr/bin/pmset").args(["-g", "batt"]).output().unwrap();
     let t = String::from_utf8_lossy(&out.stdout).into_owned();
     t.contains("'Battery Power'")
-        && t.split('%').next().and_then(|a| a.rsplit(|c: char| !c.is_ascii_digit()).next()).and_then(|d| d.parse::<u32>().ok()).is_some_and(|p| p < 10)
+        && t.split('%')
+            .next()
+            .and_then(|a| a.rsplit(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|d| d.parse::<u32>().ok())
+            .is_some_and(|p| p < 10)
 }
 
 async fn wait_for(what: &str, f: impl Fn() -> bool) {
@@ -707,7 +721,10 @@ async fn keep_awake_follows_running_cards_and_settings() {
     let dpid = daemon_pid(&env);
     let mut c = Client::connect(port, &env.home).await;
     let s = c.call("settings.get", json!({})).await.unwrap();
-    assert_eq!(s["settings"], json!({"keepAwake": true, "autoRestore": false, "silenceSeconds": 5, "clipboardPassthrough": false}));
+    assert_eq!(
+        s["settings"],
+        json!({"keepAwake": true, "autoRestore": false, "silenceSeconds": 5, "clipboardPassthrough": false})
+    );
     assert!(!assertion_held(dpid));
     let (pid, cols) = setup_project(&mut c, &env).await;
     let card = new_card(&mut c, &pid, &cols[0], "claude").await;
@@ -810,12 +827,11 @@ async fn restore_after_tmux_dies() {
 }
 
 fn cli(env: &Env, me: Option<&str>, args: &[&str]) -> (bool, String) {
-    let mut cmd = Command::new(cli_bin());
+    let mut cmd = muster_command(cli_bin());
     cmd.env("MUSTER_HOME", &env.home).args(args);
-    match me {
-        Some(m) => cmd.env("MUSTER_CARD_ID", m),
-        None => cmd.env_remove("MUSTER_CARD_ID"),
-    };
+    if let Some(m) = me {
+        cmd.env("MUSTER_CARD_ID", m);
+    }
     let out = cmd.output().unwrap();
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     (out.status.success(), text)
@@ -838,8 +854,11 @@ async fn context_links_messages_and_handoff() {
     let a = new_card(&mut c, &pid, &cols[0], "claude").await;
     let b = new_card(&mut c, &pid, &cols[0], "claude").await;
     let x = new_card(&mut c, &pid, &cols[0], "shell").await;
-    let (a_id, b_id, x_id) =
-        (a["id"].as_str().unwrap().to_string(), b["id"].as_str().unwrap().to_string(), x["id"].as_str().unwrap().to_string());
+    let (a_id, b_id, x_id) = (
+        a["id"].as_str().unwrap().to_string(),
+        b["id"].as_str().unwrap().to_string(),
+        x["id"].as_str().unwrap().to_string(),
+    );
     let b_sid = b["agentSessionId"].as_str().unwrap().to_string();
     let a_sid = a["agentSessionId"].as_str().unwrap().to_string();
 
@@ -900,7 +919,10 @@ async fn context_links_messages_and_handoff() {
     wait_card(&mut c, &b_id, "running", |k| k["status"] == "running").await;
     let (ok, out) = cli(&env, me, &["send", &b_id, "please", "check", "the", "build"]);
     assert!(ok && out.contains("queued"), "{out}");
-    let w = wait_card(&mut c, &b_id, "with a queued message", |k| k["queuedMessages"].as_array().is_some_and(|q| q.len() == 1)).await;
+    let w = wait_card(&mut c, &b_id, "with a queued message", |k| {
+        k["queuedMessages"].as_array().is_some_and(|q| q.len() == 1)
+    })
+    .await;
     assert_eq!(w["queuedMessages"][0]["fromCardId"], a_id.as_str());
     let m2 = c.call("message.send", json!({"cardId": b_id, "text": "never mind"})).await.unwrap()["message"]["id"]
         .as_str()
@@ -1006,7 +1028,10 @@ async fn questions_and_plans_answered_from_the_board() {
     assert!(w["pendingApproval"]["planFilePath"].as_str().unwrap().ends_with(".md"));
     let rid = w["pendingApproval"]["requestId"].as_str().unwrap().to_string();
     let r = c
-        .call("approval.answer", json!({"cardId": id, "requestId": rid, "decision": "approve_plan", "acceptEdits": true}))
+        .call(
+            "approval.answer",
+            json!({"cardId": id, "requestId": rid, "decision": "approve_plan", "acceptEdits": true}),
+        )
         .await
         .unwrap();
     assert_eq!(r["via"], "hook");
@@ -1029,7 +1054,10 @@ async fn questions_and_plans_answered_from_the_board() {
     wait_card(&mut c, &id, "question", |k| k["status"] == "needs_you").await;
     c.wait_output("DECISION[]").await;
     let e = c
-        .call("approval.answer", json!({"cardId": id, "decision": "answer", "answers": {"Which color do you prefer?": ["Red"]}}))
+        .call(
+            "approval.answer",
+            json!({"cardId": id, "decision": "answer", "answers": {"Which color do you prefer?": ["Red"]}}),
+        )
         .await
         .unwrap_err();
     assert_eq!(e.code, muster_proto::ErrorCode::Unavailable);
