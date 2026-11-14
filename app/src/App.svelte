@@ -13,6 +13,9 @@
   import CardModal from "./lib/ui/CardModal.svelte";
   import NewCardDialog from "./lib/ui/NewCardDialog.svelte";
   import Icon from "./lib/ui/Icon.svelte";
+  import { isTauri } from "./lib/connection";
+
+  const inTauri = isTauri();
 
   let { app }: { app: AppState } = $props();
   // svelte-ignore state_referenced_locally
@@ -55,6 +58,12 @@
       e.preventDefault();
       app.settingsOpen = true;
     }
+    // Cmd+B hides or shows the projects sidebar (the drawer in a narrow window).
+    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "b") {
+      e.preventDefault();
+      if (narrow) drawer = !drawer;
+      else app.toggleSidebar();
+    }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "t") {
       e.preventDefault();
       app.setView(app.view === "board" ? "tracker" : "board");
@@ -80,6 +89,7 @@
     <div
       class="side-wrap"
       class:drawer={narrow}
+      class:collapsed={!narrow && app.sidebarCollapsed}
       onclick={(e) => {
         if (narrow && (e.target as HTMLElement).closest(".item")) drawer = false;
       }}
@@ -92,9 +102,16 @@
     {/if}
   {/if}
   <main>
-    <div class="toolbar" data-tauri-drag-region>
+    <div class="toolbar" class:lights={!narrow && app.sidebarCollapsed && inTauri} data-tauri-drag-region>
       {#if narrow}
-        <button class="icon-btn" title="Projects" onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
+        <button class="icon-btn" title="Projects (⌘B)" onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
+      {:else}
+        <button
+          class="icon-btn"
+          title={app.sidebarCollapsed ? "Show projects (⌘B)" : "Hide projects (⌘B)"}
+          aria-pressed={!app.sidebarCollapsed}
+          onclick={() => app.toggleSidebar()}><Icon name="sidebar" /></button
+        >
       {/if}
       <div class="seg" role="tablist" aria-label="View">
         <button role="tab" aria-selected={app.view === "board"} class:on={app.view === "board"} onclick={() => app.setView("board")} title="Board (⌘T)">Board</button>
@@ -244,6 +261,14 @@
   }
   .side-wrap {
     display: flex;
+  }
+  /* Hidden, not unmounted: the sidebar keeps handling ⌘1…9. */
+  .side-wrap.collapsed {
+    display: none;
+  }
+  /* With the sidebar hidden the toolbar starts under the window's traffic lights. */
+  .toolbar.lights {
+    padding-left: 84px;
   }
   .side-wrap.drawer {
     position: fixed;

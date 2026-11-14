@@ -243,10 +243,17 @@
       // Ctrl+Tab switches Terminal and Chat.
       e.preventDefault();
       setTab(tab === "terminal" ? "chat" : "terminal");
+    } else if (e.key === "i" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      // Cmd+I hides or shows the details column.
+      e.preventDefault();
+      app.toggleCardSide();
     } else if (e.key === "`" && e.ctrlKey) {
       // Ctrl+` toggles focus between terminal and the side panel.
       e.preventDefault();
-      if (inTerm) (document.querySelector(".side input") as HTMLElement | null)?.focus();
+      if (inTerm) {
+        if (app.cardSideCollapsed) app.toggleCardSide();
+        void tick().then(() => (document.querySelector(".side input") as HTMLElement | null)?.focus());
+      }
       else term?.focus();
     }
   }
@@ -299,6 +306,12 @@
           <span class="reason">{reasonLabel(card.needsYouReason, card.setup?.exitCode)}</span>
         {/if}
         <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} source={cap.statusSource} />
+        <button
+          class="icon-btn"
+          title={app.cardSideCollapsed ? "Show details (⌘I)" : "Hide details (⌘I)"}
+          aria-pressed={!app.cardSideCollapsed}
+          onclick={() => app.toggleCardSide()}><Icon name="sidebarRight" /></button
+        >
         <button class="icon-btn" title="Close (Esc, ⌘W)" onclick={close}><Icon name="close" /></button>
       </header>
 
@@ -361,7 +374,7 @@
         </div>
         </div>
 
-        <aside class="side">
+        <aside class="side" class:collapsed={app.cardSideCollapsed}>
           <section>
             <div class="label">Column</div>
             <Select
@@ -734,6 +747,10 @@
     flex-direction: column;
     gap: 14px;
     overflow-y: auto;
+  }
+  /* Hidden, not unmounted, so unsaved notes and drafts survive a toggle. */
+  .side.collapsed {
+    display: none;
   }
   .side section {
     display: flex;
