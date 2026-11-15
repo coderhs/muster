@@ -551,7 +551,11 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                 return Err(err(ErrorCode::NotFound, "no live session"));
             }
             st.touched.touch(&p.card_id);
-            st.hub.write(&p.card_id, p.data.as_bytes()).await?;
+            if p.raw {
+                st.backend.send_input(&p.card_id, p.data.as_bytes()).await?;
+            } else {
+                st.hub.write(&p.card_id, p.data.as_bytes()).await?;
+            }
             to_value(Empty {})
         }
 

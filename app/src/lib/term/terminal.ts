@@ -130,9 +130,11 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
   let requested = { cols: 0, rows: 0 };
   const offs: Array<() => void> = [];
 
-  const send = (data: string) => {
+  const send = (data: string, raw = false) => {
     if (!attached || disposed) return;
-    client.request("term.write", { cardId, data }).catch((e) => cb.onError?.(`Input not delivered: ${errText(e)}`));
+    client
+      .request("term.write", raw ? { cardId, data, raw } : { cardId, data })
+      .catch((e) => cb.onError?.(`Input not delivered: ${errText(e)}`));
   };
 
   const applySize = (cols: number, rows: number) => {
@@ -180,7 +182,7 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     }),
   );
 
-  const dataSub = term.onData(send);
+  const dataSub = term.onData((d) => send(d));
   const binSub = term.onBinary((d) => send(d));
 
   term.attachCustomKeyEventHandler((ev) => {
@@ -193,7 +195,8 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
       return false;
     }
     if (cb.extendedCtrlEnter && isCtrlEnter(ev)) {
-      if (ev.type === "keydown") send(CTRL_ENTER);
+      // Raw: tmux would read the sequence as a key and hand the program a plain Enter.
+      if (ev.type === "keydown") send(CTRL_ENTER, true);
       ev.preventDefault();
       return false;
     }

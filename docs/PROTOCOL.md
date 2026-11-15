@@ -594,3 +594,11 @@ A stopped session is asked to quit (Ctrl+C twice) and then removed. The card bec
 `exited` with `idleStoppedAt` set, keeps its `agentSessionId`, and is not `restorable`;
 `card.start` resumes the conversation and clears `idleStoppedAt`. `idleKept` is cleared
 when the card is no longer idle, when it is stopped, and when `keepRunning` is set.
+
+## Round 9: raw terminal input
+
+`term.write` accepts `raw?: bool`. Input normally goes through the session's terminal
+client, which reads it as keys and re-encodes them for the program. A key the program's
+terminal type cannot express is then delivered as its plain equivalent: Ctrl+Enter sent
+as `ESC [ 13 ; 5 u` arrives as Enter. With `raw: true` the daemon hands the bytes to the
+program unchanged. The app uses it for Ctrl+Enter in Claude Code cards ("send now").

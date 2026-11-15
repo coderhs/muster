@@ -454,3 +454,24 @@ async fn idle_sessions_are_stopped_and_can_be_resumed() {
     assert_eq!(again["card"]["hasSession"], true);
     assert!(again["card"].get("idleStoppedAt").is_none(), "{again}");
 }
+
+/// A key in the extended form reaches the program unchanged when sent raw. Through the
+/// session's terminal client, tmux reads it as a key and passes on a plain Enter.
+#[tokio::test(flavor = "current_thread")]
+async fn raw_input_reaches_the_program_unchanged() {
+    let mut env = Env::new();
+    install(&env, "gemini", FAKE_TERMINAL_AGENT);
+    let port = env.start_daemon();
+    let mut c = Client::connect(port, &env.home).await;
+    let (pid, col) = project(&mut c, &env).await;
+    let card = start(&mut c, &pid, &col, "gemini").await;
+    let id = card["id"].as_str().unwrap().to_string();
+    c.attach(&id, 120, 30).await;
+    c.wait_output("FAKE-AGENT").await;
+    // Ctrl+Enter as "CSI u", then text and a plain Enter so the fake agent reads a line.
+    c.call("term.write", json!({"cardId": id, "data": "\u{1b}[13;5u", "raw": true})).await.unwrap();
+    c.call("term.write", json!({"cardId": id, "data": "X\r"})).await.unwrap();
+    // The terminal echoes what the program was sent, with the escape shown as `^[`.
+    // Through the client the echo would be an empty line and then `X`.
+    c.wait_output("^[[13;5uX").await;
+}

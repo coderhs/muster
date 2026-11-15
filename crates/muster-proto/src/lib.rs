@@ -927,6 +927,12 @@ pub struct CardIdParams {
 pub struct TermWriteParams {
     pub card_id: String,
     pub data: String,
+    /// Deliver the bytes to the program as they are, past the session's terminal
+    /// client. The client reads input as keys and re-encodes them for the program, so
+    /// a key the program's terminal type cannot express (Ctrl+Enter in the "CSI u"
+    /// form) would arrive as its plain equivalent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub raw: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

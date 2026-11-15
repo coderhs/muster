@@ -315,7 +315,8 @@ export interface Methods {
   "session.attach": [{ cardId: Id; cols: number; rows: number; watch?: boolean }, { cols: number; rows: number }];
   "session.detach": [{ cardId: Id }, Record<string, never>];
   "session.kill": [{ cardId: Id }, Record<string, never>];
-  "term.write": [{ cardId: Id; data: string }, Record<string, never>];
+  /** `raw` delivers the bytes as they are, past the session's terminal client (see keys.ts). */
+  "term.write": [{ cardId: Id; data: string; raw?: boolean }, Record<string, never>];
   "term.resize": [{ cardId: Id; cols: number; rows: number }, { cols: number; rows: number }];
   "agent.list": [Record<string, never>, { agents: Agent[] }];
   "approval.answer": [
