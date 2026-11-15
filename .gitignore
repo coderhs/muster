@@ -2,7 +2,6 @@ target/
 node_modules/
 dist/
 .DS_Store
-.nodeterm/
 .claude/
 app/src-tauri/gen/
 *.log

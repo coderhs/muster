@@ -4,6 +4,8 @@ description = "Tiny hook forwarder that agent CLIs run on every hook event; rela
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
 # Deliberately dependency-free: this binary starts on every hook event of every

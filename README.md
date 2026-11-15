@@ -44,3 +44,7 @@ Reference documents: [`docs/PLAN.md`](docs/PLAN.md) (design and phases),
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) (daemon API),
 [`docs/AGENTS.md`](docs/AGENTS.md) (agent integration details),
 [`docs/REVIEW-daemon.md`](docs/REVIEW-daemon.md) (security review).
+
+## License
+
+[MIT](LICENSE). To report a security problem, see [SECURITY.md](SECURITY.md).
