@@ -6,6 +6,7 @@ mod context;
 mod docs;
 mod idle;
 mod launchd;
+mod remote;
 mod rename;
 mod scrollback;
 mod server;
@@ -250,6 +251,7 @@ fn run() -> Result<(), String> {
         write_daemon_json(&home, port)?;
         tokio::spawn(state.clone().watch_sessions());
         tokio::spawn(server::serve(state.clone(), listener));
+        remote::init(&state).await;
 
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;

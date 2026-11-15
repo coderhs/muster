@@ -306,6 +306,7 @@ name = "musterd"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "httparse",
  "libc",
  "muster-agents",
  "muster-core",

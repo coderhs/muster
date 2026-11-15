@@ -43,7 +43,9 @@ Start with the wiki in [`docs/wiki`](docs/wiki/Home.md):
 Reference documents: [`docs/PLAN.md`](docs/PLAN.md) (design and phases),
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) (daemon API),
 [`docs/AGENTS.md`](docs/AGENTS.md) (agent integration details),
-[`docs/REVIEW-daemon.md`](docs/REVIEW-daemon.md) (security review).
+[`docs/REVIEW-daemon.md`](docs/REVIEW-daemon.md) (security review),
+[`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md) (phone and tablet over Tailscale),
+[`docs/MOBILE-APPS.md`](docs/MOBILE-APPS.md) (native Android and iPhone apps, planned).
 
 ## License
 

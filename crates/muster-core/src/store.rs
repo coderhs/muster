@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use muster_proto::{
-    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, Comment, ErrorCode, Link, Message, Priority, Project,
+    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, Comment, Device, ErrorCode, Link, Message, Priority,
+    Project,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -146,6 +147,16 @@ const MIGRATIONS: &[&str] = &[
         text TEXT NOT NULL,
         written_at INTEGER NOT NULL,
         PRIMARY KEY (project_id, range_from, range_to)
+    );
+    "#,
+    // v10: devices paired for remote access
+    r#"
+    CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        last_seen_at INTEGER
     );
     "#,
 ];
@@ -1066,6 +1077,49 @@ impl Store {
             .map_err(sql_err)
     }
 
+    /// Records a paired device by the hash of its token.
+    pub fn add_device(&mut self, name: &str, token_hash: &str) -> Result<Device> {
+        let device = Device { id: new_id(), name: name.to_string(), created_at: now_ms(), last_seen_at: None };
+        self.conn
+            .execute(
+                "INSERT INTO devices (id, name, token_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![device.id, device.name, token_hash, device.created_at],
+            )
+            .map_err(sql_err)?;
+        Ok(device)
+    }
+
+    pub fn list_devices(&self) -> Result<Vec<Device>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, created_at, last_seen_at FROM devices ORDER BY created_at")
+            .map_err(sql_err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(Device { id: r.get(0)?, name: r.get(1)?, created_at: r.get(2)?, last_seen_at: r.get(3)? })
+            })
+            .map_err(sql_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(sql_err)
+    }
+
+    /// The device whose token has this hash.
+    pub fn device_for_token_hash(&self, hash: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row("SELECT id FROM devices WHERE token_hash = ?1", [hash], |r| r.get(0))
+            .optional()
+            .map_err(sql_err)
+    }
+
+    pub fn touch_device(&mut self, id: &str, ts: i64) -> Result<()> {
+        self.conn.execute("UPDATE devices SET last_seen_at = ?2 WHERE id = ?1", params![id, ts]).map_err(sql_err)?;
+        Ok(())
+    }
+
+    /// Forgets a device; its token stops working. Returns whether it existed.
+    pub fn delete_device(&mut self, id: &str) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM devices WHERE id = ?1", [id]).map_err(sql_err)? > 0)
+    }
+
     /// Keeps the newest [`ACTIVITY_KEEP`] activity rows per card.
     pub fn prune_activity(&mut self) -> Result<usize> {
         self.conn
@@ -1700,6 +1754,19 @@ mod tests {
         let i = s.mark_read(&a.id).unwrap();
         assert_eq!(i.status, CardStatus::Idle);
         assert!(!i.unread);
+    }
+
+    #[test]
+    fn devices_roundtrip() {
+        let mut s = Store::open_in_memory().unwrap();
+        let d = s.add_device("iPad", "h1").unwrap();
+        assert_eq!(s.device_for_token_hash("h1").unwrap(), Some(d.id.clone()));
+        assert_eq!(s.device_for_token_hash("h2").unwrap(), None);
+        s.touch_device(&d.id, 42).unwrap();
+        assert_eq!(s.list_devices().unwrap()[0].last_seen_at, Some(42));
+        assert!(s.delete_device(&d.id).unwrap());
+        assert!(!s.delete_device(&d.id).unwrap());
+        assert_eq!(s.device_for_token_hash("h1").unwrap(), None);
     }
 
     #[test]

@@ -100,6 +100,7 @@ pub struct State {
     hello_failures: Mutex<std::collections::VecDeque<std::time::Instant>>,
     pub scrollback: crate::scrollback::Scrollback,
     pub touched: crate::idle::Touched,
+    pub remote: crate::remote::Remote,
 }
 
 #[derive(Default)]
@@ -169,6 +170,7 @@ impl State {
             hello_failures: Mutex::new(std::collections::VecDeque::new()),
             scrollback: crate::scrollback::Scrollback::default(),
             touched: crate::idle::Touched::default(),
+            remote: crate::remote::Remote::default(),
         });
         let _ = st.me.set(Arc::downgrade(&st));
         let saved = st.store.lock().unwrap().meta_get("settings").ok().flatten();

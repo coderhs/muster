@@ -4,6 +4,9 @@
       "binaries/musterd",
       "binaries/muster-hook",
       "binaries/muster"
-    ]
+    ],
+    "resources": {
+      "../dist/": "web/"
+    }
   }
 }
