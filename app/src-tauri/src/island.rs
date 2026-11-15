@@ -140,13 +140,15 @@ pub fn update(rows: Vec<Row>, enabled: bool) {
 mod imp {
     use super::{count, Kind, Row, MAX_ROWS, ON_CLICK};
     use objc2::rc::Retained;
-    use objc2::{define_class, msg_send, AllocAnyThread, MainThreadMarker, MainThreadOnly};
+    use objc2::runtime::AnyObject;
+    use objc2::{define_class, msg_send, sel, AllocAnyThread, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{
-        NSBackingStoreType, NSBezierPath, NSColor, NSEvent, NSFont, NSFontWeightMedium, NSFontWeightSemibold,
-        NSLineBreakMode, NSPanel, NSScreen, NSTextAlignment, NSTextField, NSTrackingArea, NSTrackingAreaOptions,
-        NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
+        NSApplicationDidChangeScreenParametersNotification, NSBackingStoreType, NSBezierPath, NSColor, NSEvent, NSFont,
+        NSFontWeightMedium, NSFontWeightSemibold, NSLineBreakMode, NSPanel, NSScreen, NSTextAlignment, NSTextField,
+        NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
+        NSWorkspaceActiveSpaceDidChangeNotification,
     };
-    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+    use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
     use std::cell::RefCell;
 
     /// Width of one count beside the notch, kept as narrow as a dot and a digit allow.
@@ -158,6 +160,8 @@ mod imp {
     const LIST_PAD: f64 = 6.0;
     /// Above the menu bar (24) and status items (25).
     const LEVEL: isize = 27;
+    /// Seconds a Space switch takes to finish animating.
+    const SETTLE: f64 = 1.0;
 
     define_class!(
         // SAFETY: NSView allows subclassing; no ivars, no Drop.
@@ -192,6 +196,23 @@ mod imp {
                 if let Some(f) = ON_CLICK.get() {
                     f(card);
                 }
+            }
+
+            // The display or the Space changed (a full-screen app entered or left, a
+            // monitor was plugged in, the resolution changed): the notch may be elsewhere.
+            #[unsafe(method(relayout:))]
+            fn relayout(&self, _sender: Option<&AnyObject>) {
+                relayout();
+            }
+
+            #[unsafe(method(environmentChanged:))]
+            fn environment_changed(&self, _note: Option<&AnyObject>) {
+                relayout();
+                // Once more when the switch has finished animating; the screen can
+                // still report the old arrangement while it runs.
+                let _: () = unsafe {
+                    msg_send![self, performSelector: sel!(relayout:), withObject: None::<&AnyObject>, afterDelay: SETTLE]
+                };
             }
         }
     );
@@ -234,7 +255,8 @@ mod imp {
             let f = screen.frame();
             let (l, r) = (screen.auxiliaryTopLeftArea(), screen.auxiliaryTopRightArea());
             let w = f.size.width - l.size.width - r.size.width;
-            if w > 0.0 {
+            // Both sides of a notch are free; anything else is not a notch to sit beside.
+            if w > 0.0 && l.size.width > 0.0 && r.size.width > 0.0 {
                 return Some(Notch { x: f.origin.x + l.size.width, w, h, top: f.origin.y + f.size.height });
             }
         }
@@ -336,6 +358,23 @@ mod imp {
         view.addSubview(&needs);
         view.addSubview(&done);
         panel.setContentView(Some(&view));
+        // The strip is placed once per change of its contents, so it has to be told
+        // when the screen under it changes. Never removed: the strip lives as long
+        // as the app.
+        unsafe {
+            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                &view,
+                sel!(environmentChanged:),
+                Some(NSApplicationDidChangeScreenParametersNotification),
+                None,
+            );
+            NSWorkspace::sharedWorkspace().notificationCenter().addObserver_selector_name_object(
+                &view,
+                sel!(environmentChanged:),
+                Some(NSWorkspaceActiveSpaceDidChangeNotification),
+                None,
+            );
+        }
         Strip {
             panel,
             view,
@@ -428,6 +467,26 @@ mod imp {
             self.view.setNeedsDisplay(true);
             self.panel.orderFrontRegardless();
         }
+    }
+
+    /// Places the strip again where the notch is now. A Space switch can swallow the
+    /// pointer leaving, so the list also closes unless the pointer is still on it.
+    fn relayout() {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        STRIP.with(|cell| {
+            let Ok(mut slot) = cell.try_borrow_mut() else { return };
+            if let Some(s) = slot.as_mut() {
+                if s.expanded {
+                    let (p, f) = (NSEvent::mouseLocation(), s.panel.frame());
+                    let inside = p.x >= f.origin.x
+                        && p.x < f.origin.x + f.size.width
+                        && p.y >= f.origin.y
+                        && p.y <= f.origin.y + f.size.height;
+                    s.expanded = inside;
+                }
+                s.layout(mtm);
+            }
+        });
     }
 
     fn set_expanded(on: bool) {
