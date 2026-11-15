@@ -348,13 +348,17 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             if p.splits.len() > SUMMARY_MAX_SPLITS {
                 return Err(invalid(format!("at most {SUMMARY_MAX_SPLITS} splits")));
             }
-            let (cards, rows) = {
+            let (cards, rows, texts, paragraph) = {
                 let store = st.store.lock().unwrap();
                 store.get_project(&p.project_id)?;
-                store.summary_data(&p.project_id, p.from, p.to)?
+                let (cards, rows) = store.summary_data(&p.project_id, p.from, p.to)?;
+                let texts = store.card_texts(&p.project_id, p.from, p.to)?;
+                (cards, rows, texts, store.project_text(&p.project_id, p.from, p.to)?)
             };
             let now = muster_core::util::now_ms();
             let mut r = muster_core::summary::build(&cards, &rows, p.from, p.to, &p.splits, now);
+            muster_core::summary::attach_texts(&mut r, &texts, paragraph.as_ref());
+            r.summarizing = crate::summarize::progress(&p.project_id, p.from, p.to);
             for c in r.cards.iter_mut().chain(r.days.iter_mut().flat_map(|d| d.cards.iter_mut())) {
                 c.has_session = st.has_session(&c.id);
             }
@@ -362,6 +366,18 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                 c.has_session = st.has_session(&c.id);
             }
             to_value(r)
+        }
+
+        Method::ProjectSummarize(p) => {
+            // Tests point this at a stand-in; otherwise the `claude` the user's shell finds.
+            let claude = match std::env::var_os("MUSTER_CLAUDE_BIN").filter(|p| !p.is_empty()) {
+                Some(p) => Some(PathBuf::from(p)),
+                None => {
+                    let shell = st.backend.shell().to_string();
+                    st.installed_agents.get_or_init(|| find_installed(shell)).await.get("claude").cloned()
+                }
+            };
+            to_value(crate::summarize::start(&st, &p, claude)?)
         }
 
         Method::ColumnCreate(p) => {

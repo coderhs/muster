@@ -476,6 +476,11 @@ fn summary_text(project: &str, since: &str, r: &ProjectSummaryResult) -> String 
         t.finished,
         t.created
     );
+    // Written summaries are made from the app; here they are only shown.
+    if let Some(text) = &r.text {
+        out.push('\n');
+        out.push_str(&wrap(text, 96, "  "));
+    }
     if !r.active.is_empty() {
         out.push_str("\nActive now\n");
         for c in &r.active {
@@ -503,6 +508,33 @@ fn summary_text(project: &str, since: &str, r: &ProjectSummaryResult) -> String 
             ended(c),
             c.column_title
         );
+        if let Some(text) = &c.summary {
+            out.push_str(&wrap(text, 96, "      "));
+        }
+    }
+    out
+}
+
+/// `text` in lines of at most `width` characters, each after `indent`.
+fn wrap(text: &str, width: usize, indent: &str) -> String {
+    let mut out = String::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            out.push_str(indent);
+            out.push_str(&line);
+            out.push('\n');
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        out.push_str(indent);
+        out.push_str(&line);
+        out.push('\n');
     }
     out
 }
@@ -600,11 +632,33 @@ mod tests {
             session_end: Some(SummarySessionEnd::IdleStopped),
             created: false,
             summary: None,
+            summary_at: None,
+            summary_stale: false,
+            summary_none: false,
         };
         let totals = SummaryTotals { cards: 1, working_ms: 90_000, finished: 1, created: 0 };
-        let mut r = ProjectSummaryResult { from: 0, to: 1, cards: vec![card], totals, days: vec![], active: vec![] };
+        let mut r = ProjectSummaryResult {
+            from: 0,
+            to: 1,
+            cards: vec![card],
+            totals,
+            days: vec![],
+            active: vec![],
+            text: None,
+            text_at: None,
+            text_stale: false,
+            summarizing: None,
+        };
         let text = summary_text("demo", "today", &r);
-        assert!(text.starts_with("demo, today: 1 card(s) worked on, 1m working, 1 finished, 0 created\n"));
+        assert!(text.starts_with("demo, today: 1 card(s) worked on, 1m working, 1 finished, 0 created\n\n  CARD"));
+        // Written summaries, when the app has made them.
+        r.text = Some("The parser was ported and the login redirect fixed.".into());
+        r.cards[0].summary = Some(format!("Ported the parser. {}", "More words follow here. ".repeat(6)));
+        let text = summary_text("demo", "today", &r);
+        assert!(text.contains("created\n\n  The parser was ported and the login redirect fixed.\n\n  CARD"), "{text}");
+        assert!(text.contains("Review\n      Ported the parser. More words"), "{text}");
+        assert!(text.lines().all(|l| l.chars().count() <= 125), "{text}");
+        assert_eq!(wrap("aa bb cc", 5, "> "), "> aa bb\n> cc\n");
         assert!(text.contains("A title that is much longer than the fo… claude    -"));
         assert!(text.contains("finished, idle stop  Review"));
         r.cards.clear();

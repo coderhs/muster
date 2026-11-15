@@ -923,9 +923,59 @@ pub struct SummaryCard {
     /// The card was created inside the range.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
-    /// A written summary of the work. Reserved; the daemon does not fill it yet.
+    /// A few sentences on what was done, written on request (`project.summarize`).
+    /// Only on the cards of the whole range, not on those inside `days`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// When `summary` was written, or when the card was found to have nothing to
+    /// summarise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_at: Option<i64>,
+    /// The card ran again after its conversation was last read for the summary.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary_stale: bool,
+    /// The card had no conversation in the range that could be read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary_none: bool,
+}
+
+/// How far a `project.summarize` job is: cards done out of those it looks at.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummarizeParams {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummarizeResult {
+    /// `false` when a job for the project was already running.
+    pub started: bool,
+}
+
+/// Progress of a `project.summarize` job; the texts are read with `project.summary`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryChanged {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+    pub done: u32,
+    pub total: u32,
+    /// `false` on the job's last event.
+    pub running: bool,
+    /// Why the job stopped early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -978,6 +1028,17 @@ pub struct ProjectSummaryResult {
     pub days: Vec<SummaryDay>,
     /// Cards running or needing the user now, whatever the range.
     pub active: Vec<SummaryActive>,
+    /// A paragraph on the whole range, written on request (`project.summarize`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_at: Option<i64>,
+    /// A card was worked on, or its summary rewritten, after `text` was written.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text_stale: bool,
+    /// Present while a `project.summarize` job for this range is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summarizing: Option<SummaryProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1450,6 +1511,7 @@ pub enum Method {
     DocsRead(DocsReadParams),
     DocsWrite(DocsWriteParams),
     ProjectSummary(ProjectSummaryParams),
+    ProjectSummarize(ProjectSummarizeParams),
 }
 
 macro_rules! methods {
@@ -1529,6 +1591,7 @@ methods! {
     DocsRead => "docs.read",
     DocsWrite => "docs.write",
     ProjectSummary => "project.summary",
+    ProjectSummarize => "project.summarize",
 }
 
 impl Method {
@@ -1642,6 +1705,7 @@ pub enum Event {
     LinkChanged(LinkChanged),
     StatusChanged(DaemonStatus),
     CommentChanged(CommentChanged),
+    SummaryChanged(SummaryChanged),
 }
 
 impl Event {
@@ -1659,6 +1723,7 @@ impl Event {
             Event::LinkChanged(_) => "link.changed",
             Event::StatusChanged(_) => "daemon.status",
             Event::CommentChanged(_) => "comment.changed",
+            Event::SummaryChanged(_) => "summary.changed",
         }
     }
 
@@ -1676,6 +1741,7 @@ impl Event {
             Event::LinkChanged(p) => serde_json::to_value(p),
             Event::StatusChanged(p) => serde_json::to_value(p),
             Event::CommentChanged(p) => serde_json::to_value(p),
+            Event::SummaryChanged(p) => serde_json::to_value(p),
         }
         .expect("event serialises");
         EventFrame { t: FrameTag::Ev, m: self.name().to_string(), p }
@@ -1698,6 +1764,7 @@ impl Event {
             "link.changed" => serde_json::from_value(p).map(Event::LinkChanged),
             "daemon.status" => serde_json::from_value(p).map(Event::StatusChanged),
             "comment.changed" => serde_json::from_value(p).map(Event::CommentChanged),
+            "summary.changed" => serde_json::from_value(p).map(Event::SummaryChanged),
             _ => return None,
         })
     }

@@ -10,6 +10,7 @@ mod scrollback;
 mod server;
 mod state;
 mod stats;
+mod summarize;
 mod usage;
 
 use std::io::Write;

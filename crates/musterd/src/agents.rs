@@ -561,7 +561,7 @@ impl Agents {
         });
     }
 
-    fn transcript(&self, st: &State, card: &Card) -> Option<(Arc<dyn AgentAdapter>, PathBuf)> {
+    pub(crate) fn transcript(&self, st: &State, card: &Card) -> Option<(Arc<dyn AgentAdapter>, PathBuf)> {
         let adapter = self.adapter(&card.agent_id)?.clone();
         let known = self.cards.lock().unwrap().get(&card.id).map(|c| c.tracker.transcript_path.clone());
         let known = known.unwrap_or_else(|| self.load(st, card).tracker.transcript_path);
