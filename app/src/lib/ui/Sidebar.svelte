@@ -100,7 +100,8 @@
             aria-label={p.name}
             aria-current={p.id === app.currentProjectId ? "true" : undefined}
             onclick={() => {
-              app.setView("board");
+              // From the tracker a project opens its board; the Docs tab stays on Docs.
+              if (app.view === "tracker") app.setView("board");
               void app.selectProject(p.id);
             }}
             oncontextmenu={(e) => {
@@ -149,7 +150,8 @@
             class="item"
             class:active={p.id === app.currentProjectId}
             onclick={() => {
-              app.setView("board");
+              // From the tracker a project opens its board; the Docs tab stays on Docs.
+              if (app.view === "tracker") app.setView("board");
               void app.selectProject(p.id);
             }}
             ondblclick={() => startRename(p)}

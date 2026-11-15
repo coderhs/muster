@@ -68,6 +68,37 @@ async fn card_tokens_are_scoped_to_their_card() {
     let port = env.start_daemon();
     let mut c = Client::connect(port, &env.home).await;
     let (pid, col) = project(&mut c, &env).await;
+    // The user's client reads the project's documents; they stay inside its folder.
+    std::fs::write(env.root.join("project/CLAUDE.md"), "# Rules\n").unwrap();
+    std::fs::write(env.root.join("secret.md"), "outside").unwrap();
+    let docs = c.call("docs.list", json!({"projectId": pid})).await.unwrap();
+    assert_eq!(docs["docs"][0]["path"], "CLAUDE.md");
+    assert_eq!(docs["docs"][0]["kind"], "claude");
+    let doc = c.call("docs.read", json!({"projectId": pid, "path": "CLAUDE.md"})).await.unwrap();
+    assert_eq!(doc["content"], "# Rules\n");
+    let saved = c
+        .call(
+            "docs.write",
+            json!({"projectId": pid, "path": "CLAUDE.md", "content": "# New\n", "expectedModifiedAt": doc["modifiedAt"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["doc"]["size"], 6);
+    let made = c
+        .call("docs.write", json!({"projectId": pid, "path": "docs/Guide.md", "content": "# Guide\n", "create": true}))
+        .await
+        .unwrap();
+    assert_eq!(made["doc"]["path"], "docs/Guide.md");
+    let e = c
+        .call("docs.write", json!({"projectId": pid, "path": "../secret.md", "content": "x", "create": true}))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert_eq!(std::fs::read_to_string(env.root.join("secret.md")).unwrap(), "outside");
+    let e = c.call("docs.read", json!({"projectId": pid, "path": "../secret.md"})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let e = c.call("docs.list", json!({"projectId": "nope"})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
     let a = start(&mut c, &pid, &col, "gemini").await;
     let b = start(&mut c, &pid, &col, "gemini").await;
     let x = start(&mut c, &pid, &col, "gemini").await;
@@ -150,6 +181,9 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("settings.update", json!({"keepAwake": false})),
         ("stats.subscribe", json!({})),
         ("project.list", json!({})),
+        ("docs.list", json!({"projectId": pid})),
+        ("docs.read", json!({"projectId": pid, "path": "CLAUDE.md"})),
+        ("docs.write", json!({"projectId": pid, "path": "CLAUDE.md", "content": "pwned"})),
     ];
     for (m, p) in refused {
         let e = k.call(m, p.clone()).await.expect_err(&format!("{m} {p} must be refused"));

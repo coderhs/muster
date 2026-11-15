@@ -45,7 +45,7 @@ async fn session_survives_daemon_restart() {
     let project = c.call("project.add", json!({"path": env.root.join("project")})).await.unwrap();
     let project_id = project["project"]["id"].as_str().unwrap().to_string();
     let board = c.call("board.get", json!({"projectId": project_id})).await.unwrap();
-    assert_eq!(board["columns"].as_array().unwrap().len(), 3);
+    assert_eq!(board["columns"].as_array().unwrap().len(), 4);
     let col = board["columns"][0]["id"].as_str().unwrap().to_string();
 
     let card = c
@@ -177,9 +177,9 @@ async fn board_methods_and_events() {
     let cols: Vec<String> =
         board["columns"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap().into()).collect();
     let review =
-        c.call("column.create", json!({"projectId": pid, "title": "Review", "category": "started"})).await.unwrap();
+        c.call("column.create", json!({"projectId": pid, "title": "Checks", "category": "started"})).await.unwrap();
     let review_id = review["column"]["id"].as_str().unwrap().to_string();
-    assert_eq!(review["column"]["position"], 3);
+    assert_eq!(review["column"]["position"], 4);
     let moved = c.call("column.update", json!({"id": review_id, "position": 1, "title": "Review!"})).await.unwrap();
     assert_eq!(moved["column"]["position"], 1);
     assert_eq!(moved["column"]["title"], "Review!");
@@ -291,7 +291,7 @@ async fn board_methods_and_events() {
 
     c.call("column.delete", json!({"id": review_id, "moveCardsTo": cols[2]})).await.unwrap();
     let board = c.call("board.get", json!({"projectId": pid})).await.unwrap();
-    assert_eq!(board["columns"].as_array().unwrap().len(), 3);
+    assert_eq!(board["columns"].as_array().unwrap().len(), 4);
     let a_now = board["cards"].as_array().unwrap().iter().find(|c| c["id"] == a_id).unwrap().clone();
     assert_eq!(a_now["columnId"], cols[2].as_str());
 

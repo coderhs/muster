@@ -353,6 +353,21 @@ export interface Methods {
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
   "comment.delete": [{ id: Id }, Record<string, never>];
+  "docs.list": [{ projectId: Id }, { docs: DocEntry[]; truncated?: boolean }];
+  "docs.read": [{ projectId: Id; path: string }, { path: string; content: string; modifiedAt: number; truncated?: boolean }];
+  /** `create` makes a new file; `expectedModifiedAt` refuses the save when the file changed since it was read. */
+  "docs.write": [{ projectId: Id; path: string; content: string; create?: boolean; expectedModifiedAt?: number }, { doc: DocEntry }];
+}
+
+/** `claude` is CLAUDE.md, `agents` is AGENTS.md, `doc` any other Markdown file. */
+export type DocKind = "claude" | "agents" | "doc";
+
+/** A Markdown file of a project; `path` is relative to the project's folder. */
+export interface DocEntry {
+  path: string;
+  kind: DocKind;
+  size: number;
+  modifiedAt: number;
 }
 
 export type Method = keyof Methods;

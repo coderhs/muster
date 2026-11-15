@@ -4,6 +4,7 @@
   import Sidebar from "./lib/ui/Sidebar.svelte";
   import Board from "./lib/ui/Board.svelte";
   import Tracker from "./lib/ui/Tracker.svelte";
+  import Docs from "./lib/ui/Docs.svelte";
   import AgentPicker from "./lib/ui/AgentPicker.svelte";
   import ProjectSettings from "./lib/ui/ProjectSettings.svelte";
   import SettingsDialog from "./lib/ui/SettingsDialog.svelte";
@@ -117,8 +118,9 @@
         <button role="tab" aria-selected={app.view === "tracker"} class:on={app.view === "tracker"} onclick={() => app.setView("tracker")} title="Tracker (⌘T)">
           Tracker{#if counts.needs}<span class="badge-n">{counts.needs}</span>{/if}
         </button>
+        <button role="tab" aria-selected={app.view === "docs"} class:on={app.view === "docs"} onclick={() => app.setView("docs")} title="The project's documents and agent instructions">Docs</button>
       </div>
-      {#if app.view === "board" && app.currentProject}
+      {#if app.view !== "tracker" && app.currentProject}
         <h1 data-tauri-drag-region>{app.currentProject.name}</h1>
         <span class="path" data-tauri-drag-region title={app.currentProject.path}>{app.currentProject.path}</span>
       {:else if app.view === "tracker"}
@@ -129,12 +131,12 @@
       {#if counts.running && !narrow}<span class="pill running">{counts.running} running</span>{/if}
       <span class="conn k-{conn.kind}" title={conn.kind === "ready" ? `Daemon ${conn.daemonVersion}` : conn.kind}>
         <span class="cdot"></span>
-        {#if conn.kind === "ready"}Connected{:else if conn.kind === "waiting"}Reconnecting{:else if conn.kind === "connecting"}Connecting{:else}Offline{/if}
+        <span class="conn-text">{#if conn.kind === "ready"}Connected{:else if conn.kind === "waiting"}Reconnecting{:else if conn.kind === "connecting"}Connecting{:else}Offline{/if}</span>
       </span>
       <button
         class="btn primary small"
         disabled={!app.currentProjectId || conn.kind !== "ready" || !app.columns.length}
-        class:hide-narrow={app.view === "tracker"}
+        class:hide-narrow={app.view !== "board"}
         onclick={(e) => (app.quick = { anchor: e.currentTarget as HTMLElement, columnId: null })}
         title="New session (N) · more options (⇧N)"><Icon name="plus" size={12} />New</button
       >
@@ -189,7 +191,7 @@
         <div class="waiting">
           {#if app.projects.length}
             <h2>Pick a project</h2>
-            <p>Choose a project in the sidebar to see its board, or open the tracker for everything at once.</p>
+            <p>Choose a project in the sidebar to see its board and documents, or open the tracker for everything at once.</p>
           {:else}
             <h2>Add your first project</h2>
             <p>A project is a folder, usually a git repository. Each one gets a board where every card is an agent session.</p>
@@ -199,6 +201,8 @@
           {/if}
         </div>
       </div>
+    {:else if app.view === "docs"}
+      <Docs />
     {:else}
       <Board />
     {/if}
@@ -317,6 +321,8 @@
   .narrow .path {
     display: none;
   }
+  /* Three tabs and the project's name leave no room for the word; the dot stays. */
+  .narrow .conn-text,
   .narrow .hide-narrow {
     display: none;
   }

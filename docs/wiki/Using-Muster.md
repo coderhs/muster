@@ -3,8 +3,10 @@
 ## Projects and the board
 
 A **project** is a folder on disk. Each project has its own board. A new project gets
-three columns: To Do, In Progress and Done. Columns can be added, renamed, recoloured
-and reordered. Cards are moved by dragging.
+four columns: To Do, In Progress, Review and Done. Review is for work an agent has
+finished and you have not looked at yet. Columns can be added, renamed, recoloured
+and reordered. Cards are moved by dragging. A project made before the Review column
+existed keeps its columns; add one from the board if you want it.
 
 Moving a card between columns never starts or stops its session. Columns describe
 your work; the card's **status** describes the agent.
@@ -68,6 +70,31 @@ prompt is not sent when resuming.
 
 The projects sidebar collapses to a narrow rail with the button at the left of the toolbar or ⌘B. The rail shows one tile per project in its colour, labelled with the first letter of its name, or the first two when another project starts with the same letter.
 ⌘1 to ⌘9 keep switching projects while it is hidden.
+
+## Docs
+
+The Docs tab shows the selected project's own documentation, read from its folder:
+
+- **Agent instructions**: `CLAUDE.md` (also `.claude/CLAUDE.md` and `CLAUDE.local.md`)
+  and `AGENTS.md`. A file the project does not have is listed as "not added"; choosing
+  it shows what the file is for and how to write a good one. For a file that exists,
+  the Tips button shows the same advice, and a note appears above the text when the
+  file is long, empty, or when one agent would miss what the other file says.
+- **Documents**: Markdown files at the top of the project and under `docs/`, shown as
+  folders that open and close.
+
+Links between documents open in the tab; links to the web open in the browser. The
+files are read when the tab opens and when you press Refresh.
+
+**Edit** opens the file's text; **Preview** shows how it will read, and **Save** (⌘S)
+writes it. Text you have not saved is kept while you look at other documents, tabs or
+projects, and the file is marked with a dot in the list. If an agent changed the file
+after you opened it, the save is refused: press Refresh to see the new text; your own
+is still there to save over it or discard.
+
+The **+** beside Documents makes a new file at the top of the project, and the **+**
+on a folder makes one inside it. A name may include folders (`guides/Setup`); `.md` is
+added for you. A missing `CLAUDE.md` or `AGENTS.md` is made from its tips page.
 
 ## Tracker
 
