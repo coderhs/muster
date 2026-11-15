@@ -8,6 +8,7 @@ use muster_proto::{
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::rank;
+use crate::summary::{ActivityRow, CardInfo};
 use crate::util::{err, internal, invalid, new_id, not_found, now_ms, Result};
 
 const MIGRATIONS: &[&str] = &[
@@ -1272,6 +1273,10 @@ impl Store {
         self.conn
             .execute("UPDATE cards SET idle_stopped_at = ?2, idle_kept = NULL WHERE id = ?1", params![id, at])
             .map_err(sql_err)?;
+        // The status row that follows only says `exited`; this tells the summary why.
+        if at.is_some() {
+            self.log(id, "idle_stop", None)?;
+        }
         Ok(())
     }
 
@@ -1321,6 +1326,53 @@ impl Store {
             )
             .map_err(sql_err)?;
         Ok(())
+    }
+
+    /// What [`crate::summary::build`] needs for `[from, to)`: the project's cards, and
+    /// their activity rows before `to`, starting at each card's last row before `from`
+    /// (the state it was in when the range began). Rows are ordered by card, then age.
+    pub fn summary_data(&self, project_id: &str, from: i64, to: i64) -> Result<(Vec<CardInfo>, Vec<ActivityRow>)> {
+        let mut st = self
+            .conn
+            .prepare_cached(
+                "SELECT c.id, c.title, c.agent_id, c.model, c.column_id, col.title, c.status, c.status_since, \
+                 c.idle_stopped_at FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.project_id = ?1",
+            )
+            .map_err(sql_err)?;
+        let cards = st
+            .query_map([project_id], |r| {
+                Ok(CardInfo {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    agent_id: r.get(2)?,
+                    model: r.get(3)?,
+                    column_id: r.get(4)?,
+                    column_title: r.get(5)?,
+                    status: CardStatus::parse(&r.get::<_, String>(6)?).unwrap_or(CardStatus::Draft),
+                    status_since: r.get(7)?,
+                    idle_stopped_at: r.get(8)?,
+                })
+            })
+            .map_err(sql_err)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(sql_err)?;
+        // Both lookups per card are range scans of the (card_id, ts) index.
+        let mut st = self
+            .conn
+            .prepare_cached(
+                "SELECT a.card_id, a.ts, a.kind, a.payload FROM cards c JOIN activity a ON a.card_id = c.id \
+                 WHERE c.project_id = ?1 AND a.ts < ?3 AND a.ts >= COALESCE((SELECT MAX(b.ts) FROM activity b \
+                 WHERE b.card_id = c.id AND b.ts < ?2), ?2) ORDER BY a.card_id, a.id",
+            )
+            .map_err(sql_err)?;
+        let rows = st
+            .query_map(params![project_id, from, to], |r| {
+                Ok(ActivityRow { card_id: r.get(0)?, ts: r.get(1)?, kind: r.get(2)?, payload: r.get(3)? })
+            })
+            .map_err(sql_err)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(sql_err)?;
+        Ok((cards, rows))
     }
 
     pub fn activity_count(&self, card_id: &str) -> Result<i64> {
@@ -1523,6 +1575,56 @@ mod tests {
         assert!(s.activity_count(&a.id).unwrap() > ACTIVITY_KEEP);
         s.prune_activity().unwrap();
         assert_eq!(s.activity_count(&a.id).unwrap(), ACTIVITY_KEEP);
+    }
+
+    #[test]
+    fn summary_data_reaches_back_one_row() {
+        let (mut s, p, cols) = store_with_project();
+        let (q, qcols) = s.add_project("/tmp/y", "y", None).unwrap();
+        let a = card(&mut s, &p, &cols[1], "a");
+        let b = card(&mut s, &p, &cols[0], "b");
+        let other = card(&mut s, &q, &qcols[0], "other");
+        s.conn.execute("DELETE FROM activity", []).unwrap();
+        let add = |id: &str, ts: i64, kind: &str, payload: Option<&str>| {
+            s.conn
+                .execute(
+                    "INSERT INTO activity (card_id, ts, kind, payload) VALUES (?1, ?2, ?3, ?4)",
+                    params![id, ts, kind, payload],
+                )
+                .unwrap();
+        };
+        let running = Some(r#"{"from":"idle","to":"running"}"#);
+        let done = Some(r#"{"from":"running","to":"done"}"#);
+        add(&a.id, 100, "created", None);
+        add(&a.id, 200, "status", running);
+        add(&a.id, 300, "status", done);
+        add(&a.id, 400, "status", running);
+        add(&a.id, 900, "status", done);
+        add(&a.id, 1500, "status", running);
+        add(&b.id, 100, "created", None);
+        add(&other.id, 800, "status", running);
+
+        let (cards, rows) = s.summary_data(&p.id, 500, 1000).unwrap();
+        assert_eq!(cards.len(), 2);
+        let info = cards.iter().find(|c| c.id == a.id).unwrap();
+        assert_eq!((info.title.as_str(), info.column_title.as_str()), ("a", "In Progress"));
+        // The row at 400 tells that `a` was running when the range began; `b` has only
+        // its creation, and the other project's card is left out.
+        let of = |id: &str| rows.iter().filter(|r| r.card_id == id).map(|r| r.ts).collect::<Vec<_>>();
+        assert_eq!(of(&a.id), [400, 900]);
+        assert_eq!(of(&b.id), [100]);
+        assert!(of(&other.id).is_empty());
+        assert!(rows.chunk_by(|x, y| x.card_id == y.card_id).count() == 2);
+
+        let r = crate::summary::build(&cards, &rows, 500, 1000, &[], 5000);
+        assert_eq!(r.cards.len(), 1);
+        assert_eq!((r.cards[0].working_ms, r.cards[0].runs), (400, 1));
+
+        // Stopping an idle session is logged, so a later summary can tell it from an exit.
+        s.set_idle_stopped(&a.id, Some(now_ms())).unwrap();
+        s.set_idle_stopped(&a.id, None).unwrap();
+        let (_, rows) = s.summary_data(&p.id, 2000, i64::MAX).unwrap();
+        assert_eq!(rows.iter().filter(|r| r.kind == "idle_stop").count(), 1);
     }
 
     #[test]

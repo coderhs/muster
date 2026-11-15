@@ -101,6 +101,31 @@ The **+** beside Documents makes a new file at the top of the project, and the *
 on a folder makes one inside it. A name may include folders (`guides/Setup`); `.md` is
 added for you. A missing `CLAUDE.md` or `AGENTS.md` is made from its tips page.
 
+## Summary
+
+The Summary tab answers "what did we work on?" for the selected project. Pick a range:
+Today, Yesterday, Last 7 days or Last 30 days (whole days in your local time).
+
+- The header counts the cards worked on, the time agents spent working, the cards whose
+  last run finished, and the cards created.
+- **Active now** lists the cards that are running or waiting for you at this moment,
+  whatever the range. It stays current while the tab is open.
+- Below are the cards worked on in the range, most recent first, with the agent and
+  model, the column, when the work happened, the working time, the number of runs and
+  how it ended (Finished, Needs you, Still working, Idle, Exited, Stopped when idle).
+  A range of several days is shown day by day. Click a row to open the card.
+- Cards that were created in the range and never started are folded away at the bottom.
+
+Working time is the time a card was Running. For Claude Code, Cursor and Codex a run is
+a turn; for the other agents and for shell cards it is a burst of terminal output, so
+their run counts are higher and their times rougher. The numbers come from Muster's own
+log of status changes: nothing is sent to a model. Deleted cards are not included, and
+only the newest 1000 status changes of a card are kept.
+
+The list is read when the tab opens, when you change the range or the project, and when
+you press Refresh. From a terminal: `muster summary <project> --since yesterday` (also
+`today`, `7d`, `30d`).
+
 ## Tracker
 
 The tracker groups all cards across the board into Needs you, Finished, Running and

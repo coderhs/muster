@@ -49,6 +49,7 @@ For you, in any terminal:
 muster status
 muster project add <path> [--name N]
 muster board <project>
+muster summary <project> [--since today|yesterday|7d|30d]
 muster card new <project> [--agent A] [--title T] [--prompt P] [--cwd DIR]
                           [--worktree BRANCH] [--resume ID] [--start]
 muster card move|start|kill|rm <card>

@@ -185,11 +185,24 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("docs.list", json!({"projectId": pid})),
         ("docs.read", json!({"projectId": pid, "path": "CLAUDE.md"})),
         ("docs.write", json!({"projectId": pid, "path": "CLAUDE.md", "content": "pwned"})),
+        ("project.summary", json!({"projectId": pid, "from": 0, "to": 4102444800000i64})),
     ];
     for (m, p) in refused {
         let e = k.call(m, p.clone()).await.expect_err(&format!("{m} {p} must be refused"));
         assert_eq!(e.code, ErrorCode::Unauthorized, "{m}");
     }
+    // The user's client gets the summary: the three cards were created and started.
+    let sum = c.call("project.summary", json!({"projectId": pid, "from": 0, "to": 4102444800000i64})).await.unwrap();
+    assert_eq!(sum["cards"].as_array().unwrap().len(), 3);
+    assert_eq!((sum["totals"]["cards"].clone(), sum["totals"]["created"].clone()), (json!(3), json!(3)));
+    let mine = sum["cards"].as_array().unwrap().iter().find(|s| s["id"] == json!(a)).unwrap();
+    assert_eq!(
+        (mine["runs"].clone(), mine["created"].clone(), mine["hasSession"].clone()),
+        (json!(1), json!(true), json!(true))
+    );
+    assert!(mine["columnTitle"].is_string() && mine["workingMs"].as_i64().unwrap() >= 0);
+    let e = c.call("project.summary", json!({"projectId": pid, "from": 5, "to": 5})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
     assert_eq!(c.call("card.get", json!({"id": x})).await.unwrap()["card"]["notes"], "X-SECRET");
     // The user can delete any comment; the CLI inside the session comments as the card.
     c.call("comment.delete", json!({"id": user_id})).await.unwrap();

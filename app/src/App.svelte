@@ -5,6 +5,7 @@
   import Board from "./lib/ui/Board.svelte";
   import Tracker from "./lib/ui/Tracker.svelte";
   import Docs from "./lib/ui/Docs.svelte";
+  import Summary from "./lib/ui/Summary.svelte";
   import AgentPicker from "./lib/ui/AgentPicker.svelte";
   import ProjectSettings from "./lib/ui/ProjectSettings.svelte";
   import SettingsDialog from "./lib/ui/SettingsDialog.svelte";
@@ -119,6 +120,7 @@
           Tracker{#if counts.needs}<span class="badge-n">{counts.needs}</span>{/if}
         </button>
         <button role="tab" aria-selected={app.view === "docs"} class:on={app.view === "docs"} onclick={() => app.setView("docs")} title="The project's documents and agent instructions">Docs</button>
+        <button role="tab" aria-selected={app.view === "summary"} class:on={app.view === "summary"} onclick={() => app.setView("summary")} title="What was worked on in the project">Summary</button>
       </div>
       {#if app.view !== "tracker" && app.currentProject}
         <h1 data-tauri-drag-region>{app.currentProject.name}</h1>
@@ -191,7 +193,7 @@
         <div class="waiting">
           {#if app.projects.length}
             <h2>Pick a project</h2>
-            <p>Choose a project in the sidebar to see its board and documents, or open the tracker for everything at once.</p>
+            <p>Choose a project in the sidebar to see its board, documents and summary, or open the tracker for everything at once.</p>
           {:else}
             <h2>Add your first project</h2>
             <p>A project is a folder, usually a git repository. Each one gets a board where every card is an agent session.</p>
@@ -203,6 +205,8 @@
       </div>
     {:else if app.view === "docs"}
       <Docs />
+    {:else if app.view === "summary"}
+      <Summary />
     {:else}
       <Board />
     {/if}
@@ -321,10 +325,18 @@
   .narrow .path {
     display: none;
   }
-  /* Three tabs and the project's name leave no room for the word; the dot stays. */
+  /* The tabs and the project's name leave no room for the word; the dot stays. */
   .narrow .conn-text,
   .narrow .hide-narrow {
     display: none;
+  }
+  .narrow .seg button {
+    padding: 0 7px;
+  }
+  .narrow h1 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   main {
     position: relative;

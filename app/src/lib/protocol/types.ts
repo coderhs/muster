@@ -361,6 +361,72 @@ export interface Methods {
   "docs.read": [{ projectId: Id; path: string }, { path: string; content: string; modifiedAt: number; truncated?: boolean }];
   /** `create` makes a new file; `expectedModifiedAt` refuses the save when the file changed since it was read. */
   "docs.write": [{ projectId: Id; path: string; content: string; create?: boolean; expectedModifiedAt?: number }, { doc: DocEntry }];
+  /** `from` inclusive, `to` exclusive (ms); `splits` cut the range into the parts returned in `days`. */
+  "project.summary": [{ projectId: Id; from: number; to: number; splits?: number[] }, ProjectSummary];
+}
+
+/** How a card's last run in a range ended; `idle` is a run that stopped without a finished turn. */
+export type SummaryOutcome = "working" | "needs_you" | "finished" | "idle" | "not_started";
+export type SummarySessionEnd = "exited" | "idle_stopped";
+
+/** What happened on one card inside a range. */
+export interface SummaryCard {
+  id: Id;
+  title: string;
+  agentId: string;
+  model?: string;
+  columnId: Id;
+  columnTitle: string;
+  /** The card's status now, not at the end of the range. */
+  status: CardStatus;
+  hasSession: boolean;
+  firstAt: number;
+  lastAt: number;
+  /** Time spent running inside the range. */
+  workingMs: number;
+  runs: number;
+  outcome: SummaryOutcome;
+  sessionEnd?: SummarySessionEnd;
+  created?: boolean;
+  /** A written summary of the work; reserved, not sent yet. */
+  summary?: string;
+}
+
+export interface SummaryTotals {
+  /** Cards with at least one run. */
+  cards: number;
+  workingMs: number;
+  finished: number;
+  created: number;
+}
+
+export interface SummaryDay {
+  from: number;
+  to: number;
+  cards: SummaryCard[];
+  totals: SummaryTotals;
+}
+
+export interface SummaryActive {
+  id: Id;
+  title: string;
+  agentId: string;
+  model?: string;
+  columnTitle: string;
+  status: CardStatus;
+  statusSince: number;
+  hasSession: boolean;
+}
+
+export interface ProjectSummary {
+  from: number;
+  to: number;
+  /** Most recent first. */
+  cards: SummaryCard[];
+  totals: SummaryTotals;
+  /** Most recent first, without the empty ones; absent when no `splits` were sent. */
+  days?: SummaryDay[];
+  active: SummaryActive[];
 }
 
 /** `claude` is CLAUDE.md, `agents` is AGENTS.md, `doc` any other Markdown file. */

@@ -860,6 +860,129 @@ pub struct DocsWriteResult {
     pub doc: DocEntry,
 }
 
+/// A time range for `project.summary`, in unix ms: `from` inclusive, `to` exclusive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummaryParams {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+    /// Times strictly inside the range that cut it into parts (the client's local
+    /// midnights); each part is also summarised on its own, in `days`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub splits: Vec<i64>,
+}
+
+/// How a card's last run inside a range ended.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SummaryOutcome {
+    /// Still running at the end of the range.
+    Working,
+    NeedsYou,
+    /// The agent reported the turn as finished.
+    Finished,
+    /// The run stopped without a finished turn: interrupted, or an agent that only
+    /// reports output and silence.
+    Idle,
+    /// Created in the range and never started.
+    NotStarted,
+}
+
+/// How a card's session ended inside a range.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SummarySessionEnd {
+    Exited,
+    /// The daemon stopped it for being idle.
+    IdleStopped,
+}
+
+/// What happened on one card inside a range.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryCard {
+    pub id: String,
+    pub title: String,
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub column_id: String,
+    pub column_title: String,
+    /// The card's status now, not at the end of the range.
+    pub status: CardStatus,
+    pub has_session: bool,
+    /// First and last moment of work (or the creation) inside the range.
+    pub first_at: i64,
+    pub last_at: i64,
+    /// Time spent `running` inside the range.
+    pub working_ms: i64,
+    /// Runs that overlap the range. A run is a stretch of `running`; coming back from
+    /// `needs_you` continues the same run.
+    pub runs: u32,
+    pub outcome: SummaryOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_end: Option<SummarySessionEnd>,
+    /// The card was created inside the range.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
+    /// A written summary of the work. Reserved; the daemon does not fill it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryTotals {
+    /// Cards with at least one run in the range.
+    pub cards: u32,
+    pub working_ms: i64,
+    /// Cards whose last run in the range finished.
+    pub finished: u32,
+    /// Cards created in the range.
+    pub created: u32,
+}
+
+/// One part of a range cut by `splits`. Parts without cards are left out.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryDay {
+    pub from: i64,
+    pub to: i64,
+    pub cards: Vec<SummaryCard>,
+    pub totals: SummaryTotals,
+}
+
+/// A card that is running or waiting for the user right now.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryActive {
+    pub id: String,
+    pub title: String,
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub column_title: String,
+    pub status: CardStatus,
+    pub status_since: i64,
+    pub has_session: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummaryResult {
+    pub from: i64,
+    pub to: i64,
+    /// Cards worked on or created in the range, most recent first.
+    pub cards: Vec<SummaryCard>,
+    pub totals: SummaryTotals,
+    /// Most recent part first; empty without `splits`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub days: Vec<SummaryDay>,
+    /// Cards running or needing the user now, whatever the range.
+    pub active: Vec<SummaryActive>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnCreateParams {
@@ -1330,6 +1453,7 @@ pub enum Method {
     DocsRead(DocsReadParams),
     DocsWrite(DocsWriteParams),
     CardAiRename(IdParams),
+    ProjectSummary(ProjectSummaryParams),
 }
 
 macro_rules! methods {
@@ -1409,6 +1533,7 @@ methods! {
     DocsRead => "docs.read",
     DocsWrite => "docs.write",
     CardAiRename => "card.aiRename",
+    ProjectSummary => "project.summary",
 }
 
 impl Method {

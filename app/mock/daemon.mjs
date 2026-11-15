@@ -127,6 +127,73 @@ function docEntry(projectId, path) {
   return { path, kind, size: d.content.length, modifiedAt: d.modifiedAt };
 }
 
+// What the Summary tab shows. There is no activity log here, so the numbers are made
+// up from the cards: every started card worked on most days of the range, and the
+// drafts were created today.
+function mockSummary(projectId, from, to, splits) {
+  const own = [...cards.values()].filter((c) => c.projectId === projectId);
+  const end = Math.min(to, now());
+  const MIN = 60_000;
+  const totalsOf = (list) => {
+    const worked = list.filter((c) => c.runs > 0);
+    return {
+      cards: worked.length,
+      workingMs: worked.reduce((n, c) => n + c.workingMs, 0),
+      finished: worked.filter((c) => c.outcome === "finished").length,
+      created: list.filter((c) => c.created).length,
+    };
+  };
+  const cuts = [...new Set(splits)].filter((s) => s > from && s < to).sort((a, b) => a - b);
+  const bounds = [from, ...cuts, to];
+  const days = [];
+  for (let d = 0; d + 1 < bounds.length; d++) {
+    const [a, b] = [bounds[d], Math.min(bounds[d + 1], end)];
+    if (b <= a) continue;
+    const last = bounds[d + 1] >= end;
+    const list = [];
+    own.forEach((c, i) => {
+      const created = c.createdAt >= a && c.createdAt < bounds[d + 1];
+      const base = { id: c.id, title: c.title, agentId: c.agentId, model: c.model ?? undefined, columnId: c.columnId, columnTitle: columns.get(c.columnId)?.title ?? "", status: c.status, hasSession: c.hasSession };
+      if (c.status === "draft") {
+        if (created) list.push({ ...base, firstAt: c.createdAt, lastAt: c.createdAt, workingMs: 0, runs: 0, outcome: "not_started", created });
+        return;
+      }
+      if (!last && (i + d) % 3 === 0) return;
+      const lastAt = Math.max(a, b - i * 11 * MIN - (last ? 0 : 3 * 3600_000));
+      const workingMs = Math.min(lastAt - a, (7 + 13 * i + 5 * d) * MIN);
+      const outcome = !last ? "finished" : { running: "working", needs_you: "needs_you", done: "finished" }[c.status] ?? "idle";
+      list.push({
+        ...base,
+        firstAt: Math.max(a, lastAt - 2 * workingMs),
+        lastAt,
+        workingMs,
+        runs: 1 + ((i + d) % 4),
+        outcome,
+        sessionEnd: last && c.status === "exited" ? "idle_stopped" : undefined,
+        created: created || undefined,
+      });
+    });
+    if (!list.length) continue;
+    list.sort((x, y) => y.lastAt - x.lastAt);
+    days.push({ from: bounds[d], to: bounds[d + 1], cards: list, totals: totalsOf(list) });
+  }
+  days.reverse();
+  // The whole range: each card once, its days added up, ended as on its latest day.
+  const whole = new Map();
+  for (const day of days) {
+    for (const c of day.cards) {
+      const w = whole.get(c.id);
+      if (!w) whole.set(c.id, { ...c });
+      else Object.assign(w, { firstAt: Math.min(w.firstAt, c.firstAt), workingMs: w.workingMs + c.workingMs, runs: w.runs + c.runs, created: w.created || c.created });
+    }
+  }
+  const all = [...whole.values()].sort((x, y) => y.lastAt - x.lastAt);
+  const active = own
+    .filter((c) => c.status === "running" || c.status === "needs_you")
+    .map((c) => ({ id: c.id, title: c.title, agentId: c.agentId, model: c.model ?? undefined, columnTitle: columns.get(c.columnId)?.title ?? "", status: c.status, statusSince: c.statusSince, hasSession: c.hasSession }));
+  return { from, to, cards: all, totals: totalsOf(all), days: cuts.length ? days : undefined, active };
+}
+
 const projColumns = (pid) => [...columns.values()].filter((c) => c.projectId === pid).sort((a, b) => a.position - b.position);
 const colCards = (cid) =>
   [...cards.values()].filter((c) => c.columnId === cid).sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : a.id < b.id ? -1 : 1));
@@ -721,7 +788,12 @@ const handlers = {
     files.set(path, { content, modifiedAt: now() });
     return { doc: docEntry(projectId, path) };
   },
-  "board.get": ({ projectId }) => {
+  "project.summary": ({ projectId, from, to, splits = [] }) => {
+    need(projects.has(projectId), "not_found", "project not found");
+    need(to > from, "invalid", "the range must end after it starts");
+    return mockSummary(projectId, from, to, splits);
+  },
+  "board.get":({ projectId }) => {
     const p = projects.get(projectId);
     need(p, "not_found", "project not found");
     const own = [...cards.values()].filter((c) => c.projectId === p.id);
