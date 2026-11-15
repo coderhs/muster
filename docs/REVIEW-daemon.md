@@ -6,6 +6,12 @@ Method: I read the code. Finding 3 was checked with a small throwaway test (a pr
 reading the code. This was a
 read-only review: no daemon file was changed.
 
+**Status (checked again 2026-11-15): every finding below has been fixed.** Each section
+starts with a short note on the fix. The description that follows is the original review,
+kept as a record, so its line numbers refer to the code as of 2026-11-14. One part of
+finding 9 (the loopback check) becomes relevant again only when remote access is built;
+see the note there.
+
 Threat model: anything that holds the token or runs on the Mac as the user controls the
 daemon, and the daemon is a remote shell. Agents run as the user, so an agent that can run
 unrestricted shell commands is already as powerful as the user. Findings 1–4 still matter
@@ -15,6 +21,12 @@ one with full control over every card. Third, the CLI's "linked cards only" rule
 presented, in the docs and in the instructions given to agents, as an access rule.
 
 ## 1. HIGH: agents use the master token; the link rule is only asserted by the client
+
+> **Fixed.** Each running card gets its own token (`MUSTER_CARD_TOKEN`, stored hashed in
+> the database). `hello` with it gives a restricted card role (`Role::Card` and
+> `restrict` in `musterd/src/server.rs`). The server sets the caller's card itself, and
+> link, terminal, approval, project and card-creation methods are refused.
+> `MUSTER_HOME` is removed from the card's environment (`muster-core/src/tmux.rs`).
 
 - `muster-cli/src/client.rs:46` reads `$MUSTER_HOME/token`. `musterd/src/server.rs:599`
   passes `MUSTER_HOME` (and `MUSTER_CLI`) into every card. `server.rs:210` has a single
@@ -50,6 +62,12 @@ Suggested fix:
 
 ## 2. HIGH (defence in depth): message delivery types raw control bytes into another agent
 
+> **Fixed.** `sanitize` in `musterd/src/context.rs` drops C0, DEL and C1 controls and ESC,
+> keeping only `\n` and `\t`. Messages are always sent as a single bracketed paste, with
+> Enter sent separately. Text and titles are capped at `MAX_TEXT`. Messages are limited
+> per (sender, receiver) pair, and comments and handoffs per card. Unit tests cover the
+> injection examples below.
+
 `context.rs:252-268` writes `"[Message from …] " + text` byte for byte into the target's
 TTY. Bracketed paste is used only when the text contains `\n`. A `\r` submits right away,
 an ESC interrupts Claude Code, and `\x1b[201~` ends the paste early.
@@ -71,6 +89,10 @@ Suggested fix:
 
 ## 3. MEDIUM: card processes can reach Muster's tmux server through `$TMUX`
 
+> **Fixed.** The session command runs under `env -u TMUX -u TMUX_PANE -u MUSTER_HOME`.
+> The setup wrapper gets its target from `MUSTER_TMUX_TARGET` and calls tmux with
+> `-L <socket>`.
+
 tmux sets `TMUX` and `TMUX_PANE` for every pane, and plain `tmux` commands inside a card
 then go to Muster's server. Verified: `tmux ls` run inside one session of a
 `muster-test-*` server listed every session.
@@ -85,6 +107,12 @@ Suggested fix:
   instead of `$TMUX_PANE`, and run its `tmux` call with `-L <socket>`.
 
 ## 4. MEDIUM: forged hook events for any card; daemon reads paths from hook payloads
+
+> **Fixed.** Every launch gets a hook secret (`MUSTER_HOOK_SECRET`). The receiver compares
+> it in constant time and drops envelopes that are missing it or carry the wrong one.
+> Transcript paths, both from hooks and from storage, must pass
+> `validate_transcript_path`: they must be absolute `.jsonl` files under the agent's own
+> transcript root, with symlinks resolved. See `docs/AGENTS.md`, "Hook authenticity".
 
 - The hook socket is 0600 inside a 0700 home, so other local users are kept out. But
   every card process has `MUSTER_HOOK_SOCK`, and the envelope's `cardId` is free text.
@@ -104,6 +132,10 @@ Suggested fix:
 
 ## 5. MEDIUM: blocking work on the single-threaded runtime
 
+> **Fixed.** The daemon uses a multi-thread runtime with two workers. Transcript reads run
+> in `block_in_place`, and other slow work runs in `spawn_blocking`, so terminals and
+> pings keep flowing.
+
 The daemon runs `new_current_thread` (`main.rs:146`). Several things run synchronously on
 that one thread:
 - transcript scans of up to 32 MB per call, inside `Agents::handle` while holding the
@@ -121,6 +153,9 @@ a multi-thread runtime and keep holding std mutexes only for short stretches.
 
 ## 6. LOW–MEDIUM: SIGTERM by pid after the child may have been reaped
 
+> **Fixed.** `Attachment` keeps the `Child` handle and kills through it
+> (`child.start_kill()`), never through a stored pid.
+
 `attach.rs:97-103` kills the terminal client by stored pid (`kill_pid`, called at `137`,
 `216`, `223`, `263`, `304`). The child is reaped in a separate task (`176-179`). If the
 client has already exited and been reaped, its pid may have been reused, and an unrelated
@@ -130,6 +165,11 @@ Suggested fix: keep the `Child` (or a cancellation channel) inside `Attachment` 
 through it, or check whether it has already exited before signalling.
 
 ## 7. LOW: growth without bounds and size limits
+
+> **Fixed.** `musterd.log` is rotated at startup and checked again every 200 lines. The
+> `activity` table is pruned at startup and periodically. Deleting a card removes all of
+> its files (scrollback, setup and restore wrappers, exit status). `send_input` sends
+> large input in chunks.
 
 - `musterd.log` (launchd `StandardErrorPath`, `launchd.rs:64-67`) is never rotated.
 - The `activity` table is never pruned.
@@ -141,12 +181,22 @@ through it, or check whether it has already exited before signalling.
 
 ## 8. LOW: pane output can set the viewer's clipboard
 
+> **Fixed.** `set-clipboard` is `off` by default. A setting switches it to `external`
+> for users who want programs in a card to copy to the clipboard.
+
 `set -g set-clipboard on` (`tmux.rs:140`) forwards OSC 52 from any program in a card to the
 attached client. Agent output, or a file it `cat`s, can then replace the clipboard with a
 command the user pastes later. Use `external` or `off` unless copying out of the app needs
 it, and have the app's terminal ask before applying OSC 52.
 
 ## 9. LOW: origin and network checks are thin; the token is the only real gate
+
+> **Fixed for the current, local-only daemon.** `origin_allowed` accepts only
+> `tauri://localhost` and an exact list of dev-server origins (`MUSTER_DEV_ORIGINS`).
+> Wrong tokens are answered after a delay; a correct token is never delayed. The loopback
+> check still stands. It is correct while the daemon listens on `127.0.0.1` only. Remote
+> access (roadmap phase 8) must replace it with per-device tokens and TLS before the
+> daemon is exposed through `tailscale serve` or any proxy.
 
 - `origin_allowed` (`server.rs:70-81`) accepts any `http://localhost:<port>` page, so any
   local web app or dev server can open the socket (it still needs the token).
@@ -157,12 +207,18 @@ it, and have the app's terminal ask before applying OSC 52.
 
 ## 10. LOW: daemon exits when tmux is missing
 
+> **Fixed.** Without tmux the daemon still starts and reports the problem in
+> `daemon.status`. Every session method then fails with `unavailable`.
+
 `TmuxBackend::new` fails, so `run()` returns an error (`main.rs:140`). launchd
 (`KeepAlive{SuccessfulExit:false}`) then restarts it about every 10 s forever and the app
 cannot connect. Better: stay up, report `unavailable` with a notice in `daemon.status`, and
 refuse session methods.
 
 ## 11. Mismatches with docs/PROTOCOL.md
+
+> **Fixed.** PROTOCOL.md documents `daemon.status`, and it states that with a card token
+> the server enforces the link rule itself.
 
 - `daemon.status` exists in code (`muster-proto`) but is not in the PROTOCOL.md method
   table.

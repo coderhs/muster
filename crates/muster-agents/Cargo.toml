@@ -4,6 +4,8 @@ description = "Agent CLI adapters for Muster: launch/resume commands, per-launch
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
 # Synchronous on purpose (std threads and channels): the daemon can wrap the receiver
