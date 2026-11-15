@@ -650,3 +650,72 @@ client, which reads it as keys and re-encodes them for the program. A key the pr
 terminal type cannot express is then delivered as its plain equivalent: Ctrl+Enter sent
 as `ESC [ 13 ; 5 u` arrives as Enter. With `raw: true` the daemon hands the bytes to the
 program unchanged. The app uses it for Ctrl+Enter in Claude Code cards ("send now").
+
+## Round 12: project summary
+
+For the Summary tab and `muster summary`: what was worked on in a project during a
+time range, built from the activity log. No model is involved.
+
+| Method | Params | Result |
+|---|---|---|
+| `project.summary` | `{projectId, from, to, splits?: ms[]}` | `ProjectSummary` |
+
+```
+ProjectSummary {from, to, cards: SummaryCard[], totals, days?: SummaryDay[], active: SummaryActive[]}
+SummaryCard    {id, title, agentId, model?, columnId, columnTitle, status, hasSession,
+                firstAt, lastAt, workingMs, runs, outcome, sessionEnd?, created?, summary?}
+                outcome:    "working" | "needs_you" | "finished" | "idle" | "not_started"
+                sessionEnd: "exited" | "idle_stopped"
+SummaryTotals  {cards, workingMs, finished, created}
+SummaryDay     {from, to, cards: SummaryCard[], totals}
+SummaryActive  {id, title, agentId, model?, columnTitle, status, statusSince, hasSession}
+```
+
+`from` is inclusive and `to` exclusive, in unix ms; `to` must be greater (`invalid`
+otherwise). The client chooses the bounds, so "today" is the client's local day. A
+range that reaches into the future is cut at the present.
+
+**What the log holds.** One row when a card is created, one for every status change
+(`from` and `to`), one when a card changes column, and one (`idle_stop`) when the daemon
+stops an idle session. Nothing else: no prompts, no tool calls, no titles. The newest
+1000 rows of each card are kept. Rows go when their card is deleted, so a deleted card
+is not in any summary.
+
+**Working time** is the time a card spent `running` inside the range, taken from
+consecutive status rows. A card that was already running when the range begins counts
+from `from`; one still running at its end counts up to `to` (or the present). The daemon
+reads each card's last row before `from` to know the state it started in. What `running`
+means depends on the agent: a turn for agents with hooks or a session log, a burst of
+terminal output for the others (see `statusSource`). A session start counts as running
+until the agent first reports idle.
+
+**Runs** are the stretches of `running` that overlap the range. Going to `needs_you`
+and back continues the same run.
+
+**A card is listed** when it had a run in the range or was created in it. Reading a
+finished card, moving it, or its session ending is not work and does not list it.
+`firstAt` and `lastAt` are the first and last moment of running (or the creation)
+inside the range. `title`, `model`, `columnTitle`, `status` and `hasSession` are the
+card's values now. Cards are ordered by `lastAt`, newest first.
+
+**`outcome`** is how the last run stood at the end of the range: `working` (still
+running), `needs_you`, `finished` (the agent reported the turn done), `idle` (the run
+stopped otherwise: interrupted, or an agent that only reports output and silence), or
+`not_started` (created in the range, never run). **`sessionEnd`** is present when the
+session ended inside the range after that run: `idle_stopped` when the daemon stopped it
+for being idle, `exited` otherwise. `summary` is reserved for a written account of the
+work; the daemon does not send it yet.
+
+**`totals`**: `cards` and `workingMs` count cards with at least one run; `finished`
+those whose `outcome` is `finished`; `created` the cards created in the range.
+
+**`splits`** (at most 366 times strictly inside the range, any order) cut the range into
+parts, and `days` then holds one entry per part that has cards, newest first, each
+summarised as a range of its own. The app sends its local midnights. A run that crosses
+a split counts once in each part. Without `splits`, `days` is absent.
+
+**`active`** lists the project's cards that are `running` or `needs_you` now, whatever
+the range: waiting cards first, the longest wait on top.
+
+A card's connection is refused (`unauthorized`): the summary names every card of the
+project, and a card may only see itself and the cards linked to it.

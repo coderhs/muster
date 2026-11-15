@@ -24,6 +24,9 @@ use crate::state::{Conn, State};
 
 const OUTBOUND_QUEUE: usize = 1024;
 
+/// Parts a `project.summary` range may be cut into (a year of days).
+const SUMMARY_MAX_SPLITS: usize = 366;
+
 pub async fn serve(state: Arc<State>, listener: TcpListener) {
     loop {
         let (stream, peer) = match listener.accept().await {
@@ -336,6 +339,29 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             let root = Path::new(&project.path);
             let doc = crate::docs::write(root, &p.path, &p.content, p.create, p.expected_modified_at)?;
             to_value(DocsWriteResult { doc })
+        }
+
+        Method::ProjectSummary(p) => {
+            if p.to <= p.from {
+                return Err(invalid("the range must end after it starts"));
+            }
+            if p.splits.len() > SUMMARY_MAX_SPLITS {
+                return Err(invalid(format!("at most {SUMMARY_MAX_SPLITS} splits")));
+            }
+            let (cards, rows) = {
+                let store = st.store.lock().unwrap();
+                store.get_project(&p.project_id)?;
+                store.summary_data(&p.project_id, p.from, p.to)?
+            };
+            let now = muster_core::util::now_ms();
+            let mut r = muster_core::summary::build(&cards, &rows, p.from, p.to, &p.splits, now);
+            for c in r.cards.iter_mut().chain(r.days.iter_mut().flat_map(|d| d.cards.iter_mut())) {
+                c.has_session = st.has_session(&c.id);
+            }
+            for c in r.active.iter_mut() {
+                c.has_session = st.has_session(&c.id);
+            }
+            to_value(r)
         }
 
         Method::ColumnCreate(p) => {
@@ -796,6 +822,8 @@ fn restrict(st: &State, me: &str, hash: &str, m: Method) -> Result<Restricted> {
             let v = serde_json::to_value(BoardResult { project, columns, cards, links }).expect("serialise");
             return Ok(Restricted::Done(v));
         }
+        // `project.summary` is among the refused: it names every card of the project,
+        // and a card may only see itself and the cards linked to it.
         _ => return Err(refuse(name)),
     };
     Ok(Restricted::Call(m))

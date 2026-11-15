@@ -13,6 +13,8 @@ const USAGE: &str = "usage: muster <command>
   project add <path> [--name N] [--color C]
   project list
   board <project>                     columns and cards (project id or name)
+  summary <project> [--since today|yesterday|7d|30d]
+                                      what was worked on (default today)
   card new <project> [--column C] [--agent A] [--title T] [--prompt P]
                      [--cwd DIR] [--worktree BRANCH] [--start]
   card move <card> <column> [--before CARD] [--after CARD]
@@ -392,9 +394,117 @@ async fn run(args: Vec<String>) -> Result<i32, String> {
             let card = resolve_card(&mut c, a.arg(0, "card")?).await?;
             return term::attach(c, &card.id, a.has("--watch")).await;
         }
+        ("summary", _) => {
+            let a = Args::parse(&args[1..])?;
+            let project = resolve_project(&mut c, a.arg(0, "project")?).await?;
+            let since = a.get("--since").unwrap_or_else(|| "today".into());
+            let (from, to) = since_range(&since).ok_or("--since takes today, yesterday, 7d or 30d")?;
+            let r: ProjectSummaryResult = c
+                .call(Method::ProjectSummary(ProjectSummaryParams { project_id: project.id, from, to, splits: vec![] }))
+                .await?;
+            print!("{}", summary_text(&project.name, &since, &r));
+        }
         _ => return Err(format!("unknown command\n\n{USAGE}")),
     }
     Ok(0)
+}
+
+/// Local midnight `days_ago` days before today (negative: after), in unix ms.
+fn local_midnight(days_ago: i32) -> Option<i64> {
+    let now = unsafe { libc::time(std::ptr::null_mut()) };
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
+        return None;
+    }
+    (tm.tm_hour, tm.tm_min, tm.tm_sec) = (0, 0, 0);
+    tm.tm_mday -= days_ago;
+    // Let mktime work out whether that day is in summer time.
+    tm.tm_isdst = -1;
+    Some(unsafe { libc::mktime(&mut tm) } as i64 * 1000)
+}
+
+/// The range `--since` names, in whole local days.
+fn since_range(since: &str) -> Option<(i64, i64)> {
+    let days_back = match since {
+        "today" => 0,
+        "yesterday" => return Some((local_midnight(1)?, local_midnight(0)?)),
+        "7d" => 6,
+        "30d" => 29,
+        _ => return None,
+    };
+    Some((local_midnight(days_back)?, local_midnight(-1)?))
+}
+
+/// "45s", "12m", "3h 05m".
+fn duration(ms: i64) -> String {
+    let s = ms.max(0) / 1000;
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3599 => format!("{}m", s / 60),
+        _ => format!("{}h {:02}m", s / 3600, s % 3600 / 60),
+    }
+}
+
+fn ended(c: &SummaryCard) -> &'static str {
+    match (c.outcome, c.session_end) {
+        (SummaryOutcome::Working, _) => "working",
+        (SummaryOutcome::NeedsYou, _) => "needs you",
+        (SummaryOutcome::Finished, Some(SummarySessionEnd::IdleStopped)) => "finished, idle stop",
+        (SummaryOutcome::Finished, Some(SummarySessionEnd::Exited)) => "finished, exited",
+        (SummaryOutcome::Finished, None) => "finished",
+        (_, Some(SummarySessionEnd::IdleStopped)) => "idle stop",
+        (_, Some(SummarySessionEnd::Exited)) => "exited",
+        (SummaryOutcome::NotStarted, None) => "not started",
+        (SummaryOutcome::Idle, None) => "idle",
+    }
+}
+
+fn summary_text(project: &str, since: &str, r: &ProjectSummaryResult) -> String {
+    use std::fmt::Write;
+    let clip = |s: &str, n: usize| -> String {
+        if s.chars().count() > n {
+            s.chars().take(n - 1).chain(['…']).collect()
+        } else {
+            s.to_string()
+        }
+    };
+    let t = &r.totals;
+    let mut out = format!(
+        "{project}, {since}: {} card(s) worked on, {} working, {} finished, {} created\n",
+        t.cards,
+        duration(t.working_ms),
+        t.finished,
+        t.created
+    );
+    if !r.active.is_empty() {
+        out.push_str("\nActive now\n");
+        for c in &r.active {
+            let _ = writeln!(out, "  {:<10} {:<9} {}", c.status.as_str(), c.agent_id, c.title);
+        }
+    }
+    if r.cards.is_empty() {
+        out.push_str("\nNothing was worked on in this range.\n");
+        return out;
+    }
+    let _ = writeln!(
+        out,
+        "\n  {:<40} {:<9} {:<12} {:>8} {:>4}  {:<20} COLUMN",
+        "CARD", "AGENT", "MODEL", "WORKING", "RUNS", "ENDED"
+    );
+    for c in &r.cards {
+        let _ = writeln!(
+            out,
+            "  {:<40} {:<9} {:<12} {:>8} {:>4}  {:<20} {}",
+            clip(&c.title, 40),
+            c.agent_id,
+            clip(c.model.as_deref().unwrap_or("-"), 12),
+            duration(c.working_ms),
+            c.runs,
+            ended(c),
+            c.column_title
+        );
+    }
+    out
 }
 
 async fn resolve_project(c: &mut Client, key: &str) -> Result<Project, String> {
@@ -445,5 +555,59 @@ async fn resolve_card(c: &mut Client, key: &str) -> Result<Card, String> {
         1 => Ok(matches.pop().unwrap()),
         0 => Err(format!("no card matches {key:?}")),
         _ => Err(format!("{key:?} matches several cards")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn since_ranges_are_whole_days() {
+        let day = 24 * 3_600_000;
+        let (from, to) = since_range("today").unwrap();
+        // 23 to 25 hours, whatever the clock change.
+        assert!((to - from - day).abs() <= 3_600_000);
+        let (yfrom, yto) = since_range("yesterday").unwrap();
+        assert_eq!(yto, from);
+        assert!(yfrom < yto);
+        let (wfrom, wto) = since_range("7d").unwrap();
+        assert_eq!(wto, to);
+        assert!((to - wfrom - 7 * day).abs() <= 3_600_000);
+        assert!(since_range("3w").is_none());
+    }
+
+    #[test]
+    fn summary_table() {
+        assert_eq!(
+            (duration(45_000), duration(12 * 60_000), duration(3 * 3_600_000 + 5 * 60_000)),
+            ("45s".into(), "12m".into(), "3h 05m".into())
+        );
+        let card = SummaryCard {
+            id: "a".into(),
+            title: "A title that is much longer than the forty characters of its column".into(),
+            agent_id: "claude".into(),
+            model: None,
+            column_id: "c".into(),
+            column_title: "Review".into(),
+            status: CardStatus::Exited,
+            has_session: false,
+            first_at: 0,
+            last_at: 0,
+            working_ms: 90_000,
+            runs: 2,
+            outcome: SummaryOutcome::Finished,
+            session_end: Some(SummarySessionEnd::IdleStopped),
+            created: false,
+            summary: None,
+        };
+        let totals = SummaryTotals { cards: 1, working_ms: 90_000, finished: 1, created: 0 };
+        let mut r = ProjectSummaryResult { from: 0, to: 1, cards: vec![card], totals, days: vec![], active: vec![] };
+        let text = summary_text("demo", "today", &r);
+        assert!(text.starts_with("demo, today: 1 card(s) worked on, 1m working, 1 finished, 0 created\n"));
+        assert!(text.contains("A title that is much longer than the fo… claude    -"));
+        assert!(text.contains("finished, idle stop  Review"));
+        r.cards.clear();
+        assert!(summary_text("demo", "today", &r).ends_with("Nothing was worked on in this range.\n"));
     }
 }
