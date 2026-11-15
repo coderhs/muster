@@ -240,6 +240,20 @@ pub fn read_since(path: &Path, after: u64, max_messages: usize) -> io::Result<Ch
     Ok(ChatPage { messages: b.msgs, older: None, end: stop_at })
 }
 
+/// The newest name given to the session after byte offset `after`: `/rename` appends a
+/// `{"type":"custom-title","customTitle":"..."}` line.
+pub fn custom_title_since(path: &Path, after: u64) -> io::Result<Option<String>> {
+    let (lines, _) = lines_after(path, after, SCAN_BUDGET)?;
+    Ok(lines.iter().rev().filter(|(_, l)| contains(l, b"\"custom-title\"")).find_map(|(_, l)| {
+        let v = serde_json::from_slice::<Value>(l).ok()?;
+        if v.get("type").and_then(Value::as_str) != Some("custom-title") {
+            return None;
+        }
+        let name = v.get("customTitle").and_then(Value::as_str)?.trim();
+        (!name.is_empty()).then(|| name.to_string())
+    }))
+}
+
 /// Context size from the newest main-thread assistant line with usage data. The window
 /// size is not in the transcript (the status line feed carries it), except that a model
 /// id ending in `[1m]` implies a 1M window.
@@ -316,4 +330,29 @@ pub fn turn_state(path: &Path) -> io::Result<TurnState> {
         return Ok(if saw_end { TurnState::Ended } else { TurnState::InProgress });
     }
     Ok(if saw_end { TurnState::Ended } else { TurnState::Unknown })
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::custom_title_since;
+
+    #[test]
+    fn newest_custom_title_after_offset() {
+        let path = std::env::temp_dir().join(format!("muster-title-{}.jsonl", std::process::id()));
+        let old = "{\"type\":\"custom-title\",\"customTitle\":\"old-name\",\"sessionId\":\"s\"}\n";
+        std::fs::write(&path, old).unwrap();
+        let after = old.len() as u64;
+        assert_eq!(custom_title_since(&path, after).unwrap(), None);
+        assert_eq!(custom_title_since(&path, 0).unwrap().as_deref(), Some("old-name"));
+        let more = concat!(
+            "{\"type\":\"ai-title\",\"aiTitle\":\"Not this\"}\n",
+            "{\"type\":\"user\",\"message\":{\"content\":\"mentions \\\"custom-title\\\" only\"}}\n",
+            "{\"type\":\"custom-title\",\"customTitle\":\"first\"}\n",
+            "{\"type\":\"custom-title\",\"customTitle\":\" second \"}\n",
+            "{\"type\":\"custom-title\",\"customTitle\":\"unfinished",
+        );
+        std::fs::write(&path, format!("{old}{more}")).unwrap();
+        assert_eq!(custom_title_since(&path, after).unwrap().as_deref(), Some("second"));
+        let _ = std::fs::remove_file(&path);
+    }
 }

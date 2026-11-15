@@ -6,10 +6,12 @@ mod context;
 mod docs;
 mod idle;
 mod launchd;
+mod rename;
 mod scrollback;
 mod server;
 mod state;
 mod stats;
+mod summarize;
 mod usage;
 
 use std::io::Write;

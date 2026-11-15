@@ -65,6 +65,11 @@ prompt is not sent when resuming.
   every comment says who wrote it.
 - The details column can be hidden with its button in the card's title bar or ⌘I,
   which gives the terminal the full width.
+- **Rename with AI**, next to the title and in the card's right-click menu, asks
+  Claude Code to name the session from the conversation so far (it types `/rename`
+  into the session) and uses that name as the card's title. It is available on Claude
+  Code cards with a running session that is between turns; type a title yourself at
+  any time to keep your own.
 
 ## Sidebar
 
@@ -95,6 +100,59 @@ is still there to save over it or discard.
 The **+** beside Documents makes a new file at the top of the project, and the **+**
 on a folder makes one inside it. A name may include folders (`guides/Setup`); `.md` is
 added for you. A missing `CLAUDE.md` or `AGENTS.md` is made from its tips page.
+
+## Summary
+
+The Summary tab answers "what did we work on?" for the selected project. Pick a range:
+Today, Yesterday, Last 7 days or Last 30 days (whole days in your local time).
+
+- The header counts the cards worked on, the time agents spent working, the cards whose
+  last run finished, and the cards created.
+- **Active now** lists the cards that are running or waiting for you at this moment,
+  whatever the range. It stays current while the tab is open.
+- Below are the cards worked on in the range, most recent first, with the agent and
+  model, the column, when the work happened, the working time, the number of runs and
+  how it ended (Finished, Needs you, Still working, Idle, Exited, Stopped when idle).
+  A range of several days is shown day by day. Click a row to open the card.
+- Cards that were created in the range and never started are folded away at the bottom.
+
+Working time is the time a card was Running. For Claude Code, Cursor and Codex a run is
+a turn; for the other agents and for shell cards it is a burst of terminal output, so
+their run counts are higher and their times rougher. The numbers come from Muster's own
+log of status changes. Deleted cards are not included, and only the newest 1000 status
+changes of a card are kept.
+
+### Written summaries
+
+**Summarise** writes what was done, in words: two or three sentences under each card
+(what was asked, what was changed or found, how it ended) and one paragraph for the
+whole range at the top. It happens only when you press the button, never by itself.
+
+- The texts are kept. The next time you open the range they are there at once, and the
+  button reads **Update**: it rewrites only the cards whose conversation has gone on
+  since, and the paragraph if a card's text changed. "work has gone on since" under a
+  text says it is behind.
+- While it runs the button shows how far it is, and texts appear as they arrive.
+- Cards without a conversation Muster can read (shell cards, opencode, Gemini,
+  Antigravity) say "No conversation to summarise".
+- In a range of several days a card's text covers the whole range and is shown under
+  the most recent day the card was worked on.
+
+What it costs and where the text goes: each card text is one request to a small model
+(Haiku) through your own Claude Code, plus one request for the paragraph, so the first
+Summarise of a range with 7 cards makes 8 requests and counts against your Claude plan
+like any other Claude Code use. Muster sends an excerpt of the card's conversation in
+the range: your prompts and the agent's replies, without tool output, at most about
+12,000 characters however long the session was. It goes to Anthropic through Claude
+Code and nowhere else. The helper process gets no tools, no MCP servers and none of your
+project's instructions or hooks, and it is told to describe the conversation, not to
+follow anything written in it. Claude Code must be installed and signed in; if it is
+not, the reason is shown under the totals.
+
+The list is read when the tab opens, when you change the range or the project, and when
+you press Refresh. From a terminal: `muster summary <project> --since yesterday` (also
+`today`, `7d`, `30d`); it prints the written summaries the app has made and does not
+make any itself.
 
 ## Tracker
 

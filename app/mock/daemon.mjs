@@ -63,9 +63,10 @@ const cap = (statusSource, on) => ({
   context: on.includes("context"),
   usage: on.includes("usage"),
   resume: on.includes("resume"),
+  aiRename: on.includes("aiRename"),
 });
 const AGENTS = [
-  { id: "claude", label: "Claude Code", color: "#d97757", installed: true, capabilities: cap("hooks", ["approvals", "questions", "chat", "context", "usage", "resume"]) },
+  { id: "claude", label: "Claude Code", color: "#d97757", installed: true, capabilities: cap("hooks", ["approvals", "questions", "chat", "context", "usage", "resume", "aiRename"]) },
   { id: "codex", label: "Codex", color: "#10a37f", installed: true, capabilities: cap("log", ["chat", "context", "usage", "resume"]) },
   { id: "cursor", label: "Cursor", color: "#7c7cf8", installed: false, capabilities: cap("hooks", ["questions", "chat", "context", "usage", "resume"]) },
   { id: "opencode", label: "opencode", color: "#e2b340", installed: true, capabilities: cap("activity", ["chat", "context", "resume"]) },
@@ -125,6 +126,77 @@ function docEntry(projectId, path) {
   const kind = path === "CLAUDE.md" ? "claude" : path === "AGENTS.md" ? "agents" : "doc";
   return { path, kind, size: d.content.length, modifiedAt: d.modifiedAt };
 }
+
+// What the Summary tab shows. There is no activity log here, so the numbers are made
+// up from the cards: every started card worked on most days of the range, and the
+// drafts were created today.
+function mockSummary(projectId, from, to, splits) {
+  const own = [...cards.values()].filter((c) => c.projectId === projectId);
+  const end = Math.min(to, now());
+  const MIN = 60_000;
+  const totalsOf = (list) => {
+    const worked = list.filter((c) => c.runs > 0);
+    return {
+      cards: worked.length,
+      workingMs: worked.reduce((n, c) => n + c.workingMs, 0),
+      finished: worked.filter((c) => c.outcome === "finished").length,
+      created: list.filter((c) => c.created).length,
+    };
+  };
+  const cuts = [...new Set(splits)].filter((s) => s > from && s < to).sort((a, b) => a - b);
+  const bounds = [from, ...cuts, to];
+  const days = [];
+  for (let d = 0; d + 1 < bounds.length; d++) {
+    const [a, b] = [bounds[d], Math.min(bounds[d + 1], end)];
+    if (b <= a) continue;
+    const last = bounds[d + 1] >= end;
+    const list = [];
+    own.forEach((c, i) => {
+      const created = c.createdAt >= a && c.createdAt < bounds[d + 1];
+      const base = { id: c.id, title: c.title, agentId: c.agentId, model: c.model ?? undefined, columnId: c.columnId, columnTitle: columns.get(c.columnId)?.title ?? "", status: c.status, hasSession: c.hasSession };
+      if (c.status === "draft") {
+        if (created) list.push({ ...base, firstAt: c.createdAt, lastAt: c.createdAt, workingMs: 0, runs: 0, outcome: "not_started", created });
+        return;
+      }
+      if (!last && (i + d) % 3 === 0) return;
+      const lastAt = Math.max(a, b - i * 11 * MIN - (last ? 0 : 3 * 3600_000));
+      const workingMs = Math.min(lastAt - a, (7 + 13 * i + 5 * d) * MIN);
+      const outcome = !last ? "finished" : { running: "working", needs_you: "needs_you", done: "finished" }[c.status] ?? "idle";
+      list.push({
+        ...base,
+        firstAt: Math.max(a, lastAt - 2 * workingMs),
+        lastAt,
+        workingMs,
+        runs: 1 + ((i + d) % 4),
+        outcome,
+        sessionEnd: last && c.status === "exited" ? "idle_stopped" : undefined,
+        created: created || undefined,
+      });
+    });
+    if (!list.length) continue;
+    list.sort((x, y) => y.lastAt - x.lastAt);
+    days.push({ from: bounds[d], to: bounds[d + 1], cards: list, totals: totalsOf(list) });
+  }
+  days.reverse();
+  // The whole range: each card once, its days added up, ended as on its latest day.
+  const whole = new Map();
+  for (const day of days) {
+    for (const c of day.cards) {
+      const w = whole.get(c.id);
+      if (!w) whole.set(c.id, { ...c });
+      else Object.assign(w, { firstAt: Math.min(w.firstAt, c.firstAt), workingMs: w.workingMs + c.workingMs, runs: w.runs + c.runs, created: w.created || c.created });
+    }
+  }
+  const all = [...whole.values()].sort((x, y) => y.lastAt - x.lastAt);
+  const active = own
+    .filter((c) => c.status === "running" || c.status === "needs_you")
+    .map((c) => ({ id: c.id, title: c.title, agentId: c.agentId, model: c.model ?? undefined, columnTitle: columns.get(c.columnId)?.title ?? "", status: c.status, statusSince: c.statusSince, hasSession: c.hasSession }));
+  const written = mockTexts.get(`${projectId}|${from}|${to}`);
+  const cardsOut = all.map((c) => ({ ...c, ...written?.cards.get(c.id) }));
+  return { from, to, cards: cardsOut, totals: totalsOf(all), days: cuts.length ? days : undefined, active, text: written?.text, textAt: written?.textAt, summarizing: written?.job ?? undefined };
+}
+// Written summaries per "project|from|to": {cards: Map<id, {summary?, summaryNone?, summaryAt}>, text?, textAt?, job?}.
+const mockTexts = new Map();
 
 const projColumns = (pid) => [...columns.values()].filter((c) => c.projectId === pid).sort((a, b) => a.position - b.position);
 const colCards = (cid) =>
@@ -643,6 +715,8 @@ class Fail extends Error {
     this.code = code;
   }
 }
+// Cards with a mock AI rename under way.
+const renaming = new Set();
 const need = (cond, code, msg) => {
   if (!cond) throw new Fail(code, msg);
 };
@@ -717,6 +791,42 @@ const handlers = {
     }
     files.set(path, { content, modifiedAt: now() });
     return { doc: docEntry(projectId, path) };
+  },
+  "project.summary": ({ projectId, from, to, splits = [] }) => {
+    need(projects.has(projectId), "not_found", "project not found");
+    need(to > from, "invalid", "the range must end after it starts");
+    return mockSummary(projectId, from, to, splits);
+  },
+  // Canned texts, one card at a time, so the progress and the arrival of texts can be seen.
+  "project.summarize": ({ projectId, from, to }) => {
+    need(projects.has(projectId), "not_found", "project not found");
+    need(to > from, "invalid", "the range must end after it starts");
+    const key = `${projectId}|${from}|${to}`;
+    const entry = mockTexts.get(key) ?? { cards: new Map(), job: null };
+    if (entry.job) return { started: false };
+    mockTexts.set(key, entry);
+    const worked = mockSummary(projectId, from, to, []).cards.filter((c) => c.runs > 0);
+    entry.job = { done: 0, total: worked.length };
+    const tell = (running) => broadcast("summary.changed", { projectId, from, to, ...entry.job, running });
+    tell(true);
+    worked.forEach((c, i) =>
+      setTimeout(() => {
+        const talks = c.agentId !== "shell";
+        const summary = `The agent was asked to ${c.title.charAt(0).toLowerCase()}${c.title.slice(1)}. It changed the code involved and ran the tests. The work ended ${c.outcome === "finished" ? "with the turn finished" : "without a finished turn"}.`;
+        // A text stays until the conversation goes on; the mock's never does.
+        if (!entry.cards.has(c.id)) entry.cards.set(c.id, talks ? { summary, summaryAt: now() } : { summaryNone: true, summaryAt: now() });
+        entry.job.done++;
+        tell(true);
+      }, 900 * (i + 1)),
+    );
+    setTimeout(() => {
+      const n = [...entry.cards.values()].filter((t) => t.summary).length;
+      if (n) Object.assign(entry, { text: `Work went on in ${n} card${n === 1 ? "" : "s"}: mostly the daemon's storage and its tmux backend, with one card still waiting for an answer.`, textAt: entry.textAt ?? now() });
+      const last = entry.job;
+      entry.job = null;
+      broadcast("summary.changed", { projectId, from, to, ...last, running: false });
+    }, 900 * (worked.length + 1));
+    return { started: true };
   },
   "board.get": ({ projectId }) => {
     const p = projects.get(projectId);
@@ -849,6 +959,27 @@ const handlers = {
     links.add(linkKey(src.id, c.id));
     const [x, y] = linkKey(src.id, c.id).split("|");
     broadcast("link.changed", { link: { a: x, b: y }, linked: true });
+    return { card: c };
+  },
+  "card.aiRename": ({ id: cid }) => {
+    const c = getCard(cid);
+    need(c.agentId === "claude", "invalid", "this agent cannot name its own session");
+    need(c.hasSession, "conflict", "the card has no running session");
+    need(c.status === "idle" || c.status === "done", "conflict", "the agent is busy; try again when it is between turns");
+    c.titleAuto = true;
+    c.updatedAt = now();
+    cardEvent(c);
+    if (!renaming.has(cid)) {
+      renaming.add(cid);
+      setTimeout(() => {
+        renaming.delete(cid);
+        const k = cards.get(cid);
+        if (!k || !k.titleAuto) return;
+        k.title = "Tidy the board layout";
+        k.updatedAt = now();
+        cardEvent(k);
+      }, 1200);
+    }
     return { card: c };
   },
   "column.create": ({ projectId, title, color, category }) => {

@@ -13,6 +13,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use common::*;
+use muster_proto::ErrorCode;
 use serde_json::{json, Value};
 
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
@@ -39,6 +40,10 @@ while IFS= read -r line; do
     wait) out=$("$HOOK" hook "$2" --wait "$4" < "$3"); echo "DECISION[$out]" ;;
     sl) "$HOOK" statusline < "$2" > /dev/null; echo "SENT[statusline]" ;;
     cli) shift; "$MUSTER_CLI" "$@"; echo "CLI-DONE[$?]" ;;
+    /rename)
+      echo "$line" >> "$CLAUDE_CONFIG_DIR/typed.log"; sleep 1
+      echo '{"type":"custom-title","customTitle":"tidy-the-parser","sessionId":"s"}' >> "$CLAUDE_CONFIG_DIR/projects/muster-test/t.jsonl"
+      echo "RENAMED" ;;
     quit) exit 0 ;;
   esac
 done
@@ -482,6 +487,69 @@ async fn automatic_titles() {
     c.wait_output("SENT[statusline]").await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert_eq!(card_of(&mut c, &pid, &id).await["title"], "My task");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn rename_with_ai() {
+    let mut env = Env::new();
+    fake_claude_env(&mut env);
+    let dir = env.root.join("p");
+    std::fs::create_dir_all(&dir).unwrap();
+    let transcript = transcript_dir(&env).join("t.jsonl");
+    std::fs::write(&transcript, "{\"type\":\"custom-title\",\"customTitle\":\"an-older-name\"}\n").unwrap();
+    let sc = Scenario { dir, payloads: fixture_payloads(), transcript, cwd: env.root.join("project") };
+    let port = env.start_daemon();
+    let mut c = Client::connect(port, &env.home).await;
+    let (pid, cols) = setup_project(&mut c, &env).await;
+
+    let agents = c.call("agent.list", json!({})).await.unwrap();
+    let can = |id: &str| {
+        agents["agents"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap()["capabilities"]["aiRename"].clone()
+    };
+    assert_eq!((can("claude"), can("codex"), can("shell")), (json!(true), json!(false), json!(false)));
+
+    // Never typed into a shell, nor into a card without a session.
+    let sh = new_card(&mut c, &pid, &cols[0], "shell").await;
+    let e = c.call("card.aiRename", json!({"id": sh["id"]})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let draft =
+        c.call("card.create", json!({"projectId": pid, "columnId": cols[0], "agentId": "claude"})).await.unwrap()
+            ["card"]
+            .clone();
+    let e = c.call("card.aiRename", json!({"id": draft["id"]})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+
+    let card = new_card(&mut c, &pid, &cols[0], "claude").await;
+    let id = card["id"].as_str().unwrap().to_string();
+    let sid = card["agentSessionId"].as_str().unwrap().to_string();
+    c.attach(&id, 100, 30).await;
+    c.wait_output("hook=found").await;
+    type_line(&mut c, &id, &format!("ev SessionStart {}", sc.payload(0, &sid))).await;
+    wait_card(&mut c, &id, "idle", |k| k["status"] == "idle").await;
+
+    // Mid-turn the command would be queued as a prompt: refused.
+    type_line(&mut c, &id, &format!("ev UserPromptSubmit {}", sc.payload(3, &sid))).await;
+    wait_card(&mut c, &id, "running", |k| k["status"] == "running").await;
+    let e = c.call("card.aiRename", json!({"id": id})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    type_line(&mut c, &id, &format!("ev Stop {}", sc.payload(4, &sid))).await;
+    wait_card(&mut c, &id, "between turns", |k| k["status"] == "done" || k["status"] == "idle").await;
+
+    // A card the user named follows the agent again; asking twice types the command once.
+    c.call("card.update", json!({"id": id, "title": "My task"})).await.unwrap();
+    let r = c.call("card.aiRename", json!({"id": id})).await.unwrap()["card"].clone();
+    assert_eq!((r["title"].as_str(), r["titleAuto"].as_bool()), (Some("My task"), Some(true)));
+    c.call("card.aiRename", json!({"id": id})).await.unwrap();
+    let w = wait_card(&mut c, &id, "named by the agent", |k| k["title"] == "Tidy the parser").await;
+    assert_eq!(w["titleAuto"], true);
+    c.wait_output("RENAMED").await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let typed = std::fs::read_to_string(env.root.join("claude-config/typed.log")).unwrap();
+    assert_eq!(typed, "/rename\n");
+
+    // A title typed afterwards stays.
+    let u = c.call("card.update", json!({"id": id, "title": "Mine"})).await.unwrap()["card"].clone();
+    assert_eq!((u["title"].as_str(), u["titleAuto"].as_bool()), (Some("Mine"), Some(false)));
 }
 
 fn git_repo(path: &Path) {

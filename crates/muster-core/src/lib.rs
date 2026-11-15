@@ -8,6 +8,7 @@ pub mod procstats;
 pub mod pty;
 pub mod rank;
 pub mod store;
+pub mod summary;
 pub mod tmux;
 pub mod util;
 pub mod worktree;

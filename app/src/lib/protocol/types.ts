@@ -175,6 +175,8 @@ export interface AgentCapabilities {
   context: boolean;
   usage: boolean;
   resume: boolean;
+  /** `card.aiRename` works for this agent. Absent from older daemons. */
+  aiRename?: boolean;
 }
 
 export interface Notice {
@@ -350,6 +352,7 @@ export interface Methods {
   "message.send": [{ cardId: Id; fromCardId?: Id; text: string }, { message: Message }];
   "message.cancel": [{ id: Id }, Record<string, never>];
   "card.handoff": [{ id: Id; agentId?: string }, { card: Card }];
+  "card.aiRename": [{ id: Id }, { card: Card }];
   "daemon.status": [Record<string, never>, DaemonStatus];
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
@@ -358,6 +361,93 @@ export interface Methods {
   "docs.read": [{ projectId: Id; path: string }, { path: string; content: string; modifiedAt: number; truncated?: boolean }];
   /** `create` makes a new file; `expectedModifiedAt` refuses the save when the file changed since it was read. */
   "docs.write": [{ projectId: Id; path: string; content: string; create?: boolean; expectedModifiedAt?: number }, { doc: DocEntry }];
+  /** `from` inclusive, `to` exclusive (ms); `splits` cut the range into the parts returned in `days`. */
+  "project.summary": [{ projectId: Id; from: number; to: number; splits?: number[] }, ProjectSummary];
+  /** Starts writing the summaries of a range and returns at once; `summary.changed` follows the job. */
+  "project.summarize": [{ projectId: Id; from: number; to: number }, { started: boolean }];
+}
+
+/** How far a `project.summarize` job is. */
+export interface SummaryProgress {
+  done: number;
+  total: number;
+}
+
+/** How a card's last run in a range ended; `idle` is a run that stopped without a finished turn. */
+export type SummaryOutcome = "working" | "needs_you" | "finished" | "idle" | "not_started";
+export type SummarySessionEnd = "exited" | "idle_stopped";
+
+/** What happened on one card inside a range. */
+export interface SummaryCard {
+  id: Id;
+  title: string;
+  agentId: string;
+  model?: string;
+  columnId: Id;
+  columnTitle: string;
+  /** The card's status now, not at the end of the range. */
+  status: CardStatus;
+  hasSession: boolean;
+  firstAt: number;
+  lastAt: number;
+  /** Time spent running inside the range. */
+  workingMs: number;
+  runs: number;
+  outcome: SummaryOutcome;
+  sessionEnd?: SummarySessionEnd;
+  created?: boolean;
+  /** A few sentences on what was done, written on request. Only on the whole range's cards, not inside `days`. */
+  summary?: string;
+  /** When `summary` was written, or when the card was found to have nothing to summarise. */
+  summaryAt?: number;
+  /** The card ran again after its conversation was read for the summary. */
+  summaryStale?: boolean;
+  /** The card had no conversation in the range that could be read. */
+  summaryNone?: boolean;
+}
+
+export interface SummaryTotals {
+  /** Cards with at least one run. */
+  cards: number;
+  workingMs: number;
+  finished: number;
+  created: number;
+}
+
+export interface SummaryDay {
+  from: number;
+  to: number;
+  cards: SummaryCard[];
+  totals: SummaryTotals;
+}
+
+export interface SummaryActive {
+  id: Id;
+  title: string;
+  agentId: string;
+  model?: string;
+  columnTitle: string;
+  status: CardStatus;
+  statusSince: number;
+  hasSession: boolean;
+}
+
+export interface ProjectSummary {
+  from: number;
+  to: number;
+  /** Most recent first. */
+  cards: SummaryCard[];
+  totals: SummaryTotals;
+  /** Most recent first, without the empty ones; absent when no `splits` were sent. */
+  days?: SummaryDay[];
+  active: SummaryActive[];
+  /** A paragraph on the whole range, written on request. */
+  text?: string;
+  textAt?: number;
+  /** Work went on, or a card's summary was rewritten, after `text` was written. */
+  textStale?: boolean;
+  /** Present while a job for this range is running. */
+  summarizing?: SummaryProgress;
 }
 
 /** `claude` is CLAUDE.md, `agents` is AGENTS.md, `doc` any other Markdown file. */
@@ -389,6 +479,8 @@ export interface Events {
   "link.changed": { link: Link; linked: boolean };
   "daemon.status": DaemonStatus;
   "comment.changed": { comment: Comment } | { removedId: Id; cardId: Id };
+  /** Progress of a `project.summarize` job; `running` is false on its last event, `error` says why it stopped early. */
+  "summary.changed": { projectId: Id; from: number; to: number; done: number; total: number; running: boolean; error?: string };
 }
 
 export type EventName = keyof Events;

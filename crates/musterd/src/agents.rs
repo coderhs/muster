@@ -307,6 +307,7 @@ impl Agents {
                     // Antigravity's resume flag is documented but unverified, and there is no
                     // way to learn a conversation id to resume.
                     resume: c.resume && agent_id != "antigravity",
+                    ai_rename: self.adapter(agent_id).is_some_and(|a| a.rename_command().is_some()),
                 }
             }
             None => AgentCapabilities {
@@ -317,6 +318,7 @@ impl Agents {
                 context: false,
                 usage: false,
                 resume: false,
+                ai_rename: false,
             },
         }
     }
@@ -561,7 +563,7 @@ impl Agents {
         });
     }
 
-    fn transcript(&self, st: &State, card: &Card) -> Option<(Arc<dyn AgentAdapter>, PathBuf)> {
+    pub(crate) fn transcript(&self, st: &State, card: &Card) -> Option<(Arc<dyn AgentAdapter>, PathBuf)> {
         let adapter = self.adapter(&card.agent_id)?.clone();
         let known = self.cards.lock().unwrap().get(&card.id).map(|c| c.tracker.transcript_path.clone());
         let known = known.unwrap_or_else(|| self.load(st, card).tracker.transcript_path);
@@ -843,8 +845,9 @@ impl Agents {
                     model = Some(l);
                 }
                 if let Some(name) = usage.session_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+                    let name = crate::rename::display_title(name);
                     if card.title_auto && card.title != name {
-                        auto_title = Some((name.chars().take(80).collect(), title_source::AGENT));
+                        auto_title = Some((name, title_source::AGENT));
                     }
                 }
                 if let Some(c) = &usage.context {

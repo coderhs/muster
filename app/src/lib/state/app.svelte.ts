@@ -39,7 +39,7 @@ export interface Toast {
 }
 
 /** The tabs of the main window. The tracker covers all projects; the others one. */
-export const VIEWS = ["board", "tracker", "docs"] as const;
+export const VIEWS = ["board", "tracker", "docs", "summary"] as const;
 export type View = (typeof VIEWS)[number];
 
 const PROJECT_KEY = "muster.project";

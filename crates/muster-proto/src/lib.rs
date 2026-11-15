@@ -676,6 +676,9 @@ pub struct AgentCapabilities {
     pub usage: bool,
     /// `card.start` resumes the agent's own session.
     pub resume: bool,
+    /// `card.aiRename` can ask the agent to name its session.
+    #[serde(default)]
+    pub ai_rename: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +858,190 @@ pub struct DocsWriteParams {
 #[serde(rename_all = "camelCase")]
 pub struct DocsWriteResult {
     pub doc: DocEntry,
+}
+
+/// A time range for `project.summary`, in unix ms: `from` inclusive, `to` exclusive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummaryParams {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+    /// Times strictly inside the range that cut it into parts (the client's local
+    /// midnights); each part is also summarised on its own, in `days`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub splits: Vec<i64>,
+}
+
+/// How a card's last run inside a range ended.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SummaryOutcome {
+    /// Still running at the end of the range.
+    Working,
+    NeedsYou,
+    /// The agent reported the turn as finished.
+    Finished,
+    /// The run stopped without a finished turn: interrupted, or an agent that only
+    /// reports output and silence.
+    Idle,
+    /// Created in the range and never started.
+    NotStarted,
+}
+
+/// How a card's session ended inside a range.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SummarySessionEnd {
+    Exited,
+    /// The daemon stopped it for being idle.
+    IdleStopped,
+}
+
+/// What happened on one card inside a range.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryCard {
+    pub id: String,
+    pub title: String,
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub column_id: String,
+    pub column_title: String,
+    /// The card's status now, not at the end of the range.
+    pub status: CardStatus,
+    pub has_session: bool,
+    /// First and last moment of work (or the creation) inside the range.
+    pub first_at: i64,
+    pub last_at: i64,
+    /// Time spent `running` inside the range.
+    pub working_ms: i64,
+    /// Runs that overlap the range. A run is a stretch of `running`; coming back from
+    /// `needs_you` continues the same run.
+    pub runs: u32,
+    pub outcome: SummaryOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_end: Option<SummarySessionEnd>,
+    /// The card was created inside the range.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
+    /// A few sentences on what was done, written on request (`project.summarize`).
+    /// Only on the cards of the whole range, not on those inside `days`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// When `summary` was written, or when the card was found to have nothing to
+    /// summarise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_at: Option<i64>,
+    /// The card ran again after its conversation was last read for the summary.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary_stale: bool,
+    /// The card had no conversation in the range that could be read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary_none: bool,
+}
+
+/// How far a `project.summarize` job is: cards done out of those it looks at.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummarizeParams {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummarizeResult {
+    /// `false` when a job for the project was already running.
+    pub started: bool,
+}
+
+/// Progress of a `project.summarize` job; the texts are read with `project.summary`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryChanged {
+    pub project_id: String,
+    pub from: i64,
+    pub to: i64,
+    pub done: u32,
+    pub total: u32,
+    /// `false` on the job's last event.
+    pub running: bool,
+    /// Why the job stopped early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryTotals {
+    /// Cards with at least one run in the range.
+    pub cards: u32,
+    pub working_ms: i64,
+    /// Cards whose last run in the range finished.
+    pub finished: u32,
+    /// Cards created in the range.
+    pub created: u32,
+}
+
+/// One part of a range cut by `splits`. Parts without cards are left out.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryDay {
+    pub from: i64,
+    pub to: i64,
+    pub cards: Vec<SummaryCard>,
+    pub totals: SummaryTotals,
+}
+
+/// A card that is running or waiting for the user right now.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryActive {
+    pub id: String,
+    pub title: String,
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub column_title: String,
+    pub status: CardStatus,
+    pub status_since: i64,
+    pub has_session: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummaryResult {
+    pub from: i64,
+    pub to: i64,
+    /// Cards worked on or created in the range, most recent first.
+    pub cards: Vec<SummaryCard>,
+    pub totals: SummaryTotals,
+    /// Most recent part first; empty without `splits`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub days: Vec<SummaryDay>,
+    /// Cards running or needing the user now, whatever the range.
+    pub active: Vec<SummaryActive>,
+    /// A paragraph on the whole range, written on request (`project.summarize`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_at: Option<i64>,
+    /// A card was worked on, or its summary rewritten, after `text` was written.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text_stale: bool,
+    /// Present while a `project.summarize` job for this range is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summarizing: Option<SummaryProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1326,6 +1513,9 @@ pub enum Method {
     DocsList(DocsListParams),
     DocsRead(DocsReadParams),
     DocsWrite(DocsWriteParams),
+    CardAiRename(IdParams),
+    ProjectSummary(ProjectSummaryParams),
+    ProjectSummarize(ProjectSummarizeParams),
 }
 
 macro_rules! methods {
@@ -1404,6 +1594,9 @@ methods! {
     DocsList => "docs.list",
     DocsRead => "docs.read",
     DocsWrite => "docs.write",
+    CardAiRename => "card.aiRename",
+    ProjectSummary => "project.summary",
+    ProjectSummarize => "project.summarize",
 }
 
 impl Method {
@@ -1517,6 +1710,7 @@ pub enum Event {
     LinkChanged(LinkChanged),
     StatusChanged(DaemonStatus),
     CommentChanged(CommentChanged),
+    SummaryChanged(SummaryChanged),
 }
 
 impl Event {
@@ -1534,6 +1728,7 @@ impl Event {
             Event::LinkChanged(_) => "link.changed",
             Event::StatusChanged(_) => "daemon.status",
             Event::CommentChanged(_) => "comment.changed",
+            Event::SummaryChanged(_) => "summary.changed",
         }
     }
 
@@ -1551,6 +1746,7 @@ impl Event {
             Event::LinkChanged(p) => serde_json::to_value(p),
             Event::StatusChanged(p) => serde_json::to_value(p),
             Event::CommentChanged(p) => serde_json::to_value(p),
+            Event::SummaryChanged(p) => serde_json::to_value(p),
         }
         .expect("event serialises");
         EventFrame { t: FrameTag::Ev, m: self.name().to_string(), p }
@@ -1573,6 +1769,7 @@ impl Event {
             "link.changed" => serde_json::from_value(p).map(Event::LinkChanged),
             "daemon.status" => serde_json::from_value(p).map(Event::StatusChanged),
             "comment.changed" => serde_json::from_value(p).map(Event::CommentChanged),
+            "summary.changed" => serde_json::from_value(p).map(Event::SummaryChanged),
             _ => return None,
         })
     }
