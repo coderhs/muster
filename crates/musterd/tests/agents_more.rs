@@ -373,8 +373,10 @@ async fn cursor_status_from_its_hooks() {
     }
     let w = wait_card(&mut c, &id, "done", |k| k["status"] == "done").await;
     assert!(w["agentSessionId"].as_str().unwrap().starts_with("c4ba7951"), "{w}");
-    let k = card_now(&mut c, &id).await;
-    assert_eq!(k["context"]["usedTokens"], 38532, "{k}");
+    // Cursor's `stop` carries the token count too, but the daemon applies it after the
+    // status, in a second change: wait for it instead of reading the card at once.
+    let counted = |k: &Value| k["context"]["usedTokens"] == 38532;
+    let k = if counted(&w) { w } else { wait_card(&mut c, &id, "counted", counted).await };
     // Cursor never asks for approvals from the board.
     assert!(k.get("pendingApproval").is_none());
 }
