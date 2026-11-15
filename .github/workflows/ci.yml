@@ -14,8 +14,8 @@ jobs:
     # The daemon uses macOS-only APIs and its tests drive a real tmux server.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
       - run: brew install tmux
       - uses: Swatinem/rust-cache@v2
       - run: mise exec -- rustup component add rustfmt clippy
@@ -29,8 +29,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
       - run: mise exec -- npm ci
       - run: mise exec -- npm run check
       - run: mise exec -- npm test

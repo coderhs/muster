@@ -195,6 +195,14 @@ set-hook -g pane-died "run-shell -b \"echo '#{{pane_dead_status}}:#{{pane_dead_s
     )
 }
 
+/// How often a session start is retried when the server exits under it.
+const SERVER_EXIT_RETRIES: u32 = 10;
+
+/// Whether a tmux command failed because the server it reached was exiting.
+fn server_went_away(msg: &str) -> bool {
+    msg.contains("server exited unexpectedly") || msg.contains("lost server")
+}
+
 impl TmuxBackend {
     /// Prepares the backend: writes the tmux config into `home` and makes
     /// the exit-code directory. Does not start tmux.
@@ -465,7 +473,19 @@ impl SessionBackend for TmuxBackend {
         }
         args.push("--".into());
         args.extend(self.shell_argv(&spec.argv));
-        self.run(&args).await.map(|_| ())
+        // When the last session ends, the server exits (`exit-empty`). A session started
+        // in that moment reaches the exiting server and fails; the server is gone then,
+        // so starting again brings up a new one.
+        let mut tries = 0;
+        loop {
+            match self.run(&args).await {
+                Err(e) if tries < SERVER_EXIT_RETRIES && server_went_away(&e.msg) => {
+                    tries += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                r => return r.map(|_| ()),
+            }
+        }
     }
 
     async fn kill(&self, card_id: &str) -> Result<()> {
@@ -651,5 +671,43 @@ mod env_tests {
         for v in ["CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "PATH", "MUSTER_CARD_ID"] {
             assert!(!is_agent_session_var(v), "{v}");
         }
+    }
+}
+
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+
+    fn spec(dir: &Path, card: &str) -> SessionSpec {
+        SessionSpec {
+            card_id: card.into(),
+            cwd: dir.to_string_lossy().into_owned(),
+            argv: Some(vec!["sleep".into(), "30".into()]),
+            env: vec![],
+            cols: 80,
+            rows: 24,
+        }
+    }
+
+    /// Ending the last session makes the tmux server exit (`exit-empty`). A session
+    /// started while it is on its way out must still start, on a new server.
+    #[tokio::test]
+    async fn a_session_starts_while_the_last_one_ends() {
+        let home = std::env::temp_dir().join(format!("muster-tmux-test-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let b = TmuxBackend::new(&home, &format!("muster-test-{}", std::process::id())).unwrap();
+        if !b.available() {
+            return;
+        }
+        b.create(&spec(&home, "race0")).await.unwrap();
+        for i in 1..60 {
+            let (prev, card) = (format!("race{}", i - 1), format!("race{i}"));
+            let next = spec(&home, &card);
+            let (_, created) = tokio::join!(b.kill(&prev), b.create(&next));
+            created.unwrap_or_else(|e| panic!("round {i}: {e:?}"));
+            assert!(b.exists(&card).await, "round {i}: session missing after a successful start");
+        }
+        b.kill_server().await;
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
