@@ -76,6 +76,22 @@ async fn session_survives_daemon_restart() {
     assert!(!pid.is_empty(), "no tmux client attached");
     assert!(Command::new("kill").arg("-9").arg(&pid).status().unwrap().success());
     c.output.clear();
+    // Wait for the replacement itself, not only for output: frames from the old client
+    // may still be on their way, and input typed before the new one is up would go to
+    // the dead one.
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        let out = Command::new("tmux")
+            .args(["-L", &env.socket, "list-clients", "-t", &format!("=m-{card_id}"), "-F", "#{client_pid}"])
+            .output()
+            .unwrap();
+        let now = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !now.is_empty() && now != pid {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no new tmux client attached");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     c.wait_output("hello-42").await; // the new client's repaint
     c.call("term.write", json!({"cardId": card_id, "data": "echo revived-$((2*3))\r"})).await.unwrap();
     c.wait_output("revived-6").await;

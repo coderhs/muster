@@ -36,7 +36,7 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSBundle", "NSObject", "NSGeometry", "NSArray", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSBundle", "NSObject", "NSGeometry", "NSArray", "NSURL", "NSNotification"] }
 objc2-app-kit = "0.3"
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSound", "UNNotificationTrigger", "block2"] }
 block2 = "0.6"
