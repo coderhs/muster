@@ -1,11 +1,27 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { Id, ProjectSummary, SummaryCard } from "../protocol/types";
+  import type { Id, ProjectSummary, SummaryCard, SummaryProgress } from "../protocol/types";
   import { useApp } from "../state/context";
   import { clock } from "../state/clock.svelte";
   import { errText } from "../protocol/client";
   import { timerLabel } from "../tracker/tracker";
-  import { RANGES, RANGE_LABEL, activeNow, dayLabel, endedLabel, rangeOf, runsLabel, splitWorked, timeSpan, workDuration, type RangeKey } from "../summary/summary";
+  import {
+    RANGES,
+    RANGE_LABEL,
+    activeNow,
+    dayLabel,
+    endedLabel,
+    hasTexts,
+    jobLabel,
+    rangeOf,
+    runsLabel,
+    splitWorked,
+    textDays,
+    timeSpan,
+    workDuration,
+    writtenNote,
+    type RangeKey,
+  } from "../summary/summary";
   import AgentMark from "./AgentMark.svelte";
 
   const app = useApp();
@@ -15,8 +31,13 @@
   const RANGE_KEY = "muster.summary.range";
   let range = $state<RangeKey>(recall());
   let data = $state.raw<ProjectSummary | null>(null);
+  /** The range `data` is for, which lags behind the picker while a new one loads. */
+  let shown = $state<RangeKey>("today");
   let error = $state("");
   let loading = $state(false);
+  /** A job writing the texts of the range on screen, and why the last one stopped. */
+  let job = $state<SummaryProgress | null>(null);
+  let jobError = $state("");
   let loads = 0;
   let shownFor: Id | null = null;
 
@@ -47,20 +68,27 @@
     untrack(() => void load(pid, r));
   });
 
-  async function load(pid: Id, r: RangeKey) {
+  /** `quiet`: texts arriving from a job; the list stays as it is until the answer is there. */
+  async function load(pid: Id, r: RangeKey, quiet = false) {
     const n = ++loads;
     // Another project's numbers must not stay on screen under this one's name.
     if (pid !== shownFor) data = null;
     shownFor = pid;
-    loading = true;
-    error = "";
+    if (!quiet) {
+      loading = true;
+      error = "";
+      jobError = "";
+    }
     try {
       const { from, to, splits } = rangeOf(r, Date.now());
       const res = await app.client.request("project.summary", { projectId: pid, from, to, splits });
       if (n !== loads) return;
       data = res;
+      shown = r;
+      job = res.summarizing ?? null;
     } catch (e) {
       if (n !== loads) return;
+      if (quiet) return;
       data = null;
       error = errText(e);
     } finally {
@@ -68,10 +96,38 @@
     }
   }
 
+  // Written summaries are made only when asked for: each text is a model request.
+  async function summarise() {
+    const [pid, d] = [projectId, data];
+    if (!pid || !d || job) return;
+    jobError = "";
+    job = { done: 0, total: parts.worked.length };
+    try {
+      await app.client.request("project.summarize", { projectId: pid, from: d.from, to: d.to });
+    } catch (e) {
+      job = null;
+      jobError = errText(e);
+    }
+  }
+
+  $effect(() =>
+    app.client.on("summary.changed", (p) => {
+      if (p.projectId !== projectId || !data || p.from !== data.from || p.to !== data.to) return;
+      job = p.running ? { done: p.done, total: p.total } : null;
+      if (p.error) jobError = p.error;
+      // The texts written so far; a reading already under way will bring them.
+      if (!loading) void load(p.projectId, shown, true);
+    }),
+  );
+
   const active = $derived(projectId ? activeNow(Object.values(app.allCards), projectId) : []);
   const parts = $derived(splitWorked(data?.cards ?? []));
   // A range of several days is shown day by day; the daemon leaves out the empty days.
   const days = $derived((data?.days ?? []).map((d) => ({ ...d, worked: d.cards.filter((c) => c.runs > 0) })).filter((d) => d.worked.length));
+  // The texts are on the cards of the whole range; day by day, each goes under one day.
+  const texts = $derived(new Map((data?.cards ?? []).map((c) => [c.id, c])));
+  const textDay = $derived(textDays(data?.days ?? []));
+  const written = $derived(!!data && hasTexts(data));
 </script>
 
 <div class="sum">
@@ -81,7 +137,16 @@
         <button role="tab" aria-selected={range === r} class:on={range === r} onclick={() => pick(r)}>{RANGE_LABEL[r]}</button>
       {/each}
     </div>
-    <button class="btn small" disabled={!ready || loading || !projectId} onclick={() => projectId && void load(projectId, range)} title="Read the summary again">Refresh</button>
+    <div class="acts">
+      <button
+        class="btn small"
+        disabled={!ready || loading || !data || !!job || !parts.worked.length || shown !== range}
+        onclick={() => void summarise()}
+        title="Writes a few sentences per card and a paragraph for the range, with a small model through your Claude Code account: one request for each card whose conversation changed, and one for the paragraph."
+        >{job ? jobLabel(job) : written ? "Update" : "Summarise"}</button
+      >
+      <button class="btn small" disabled={!ready || loading || !projectId} onclick={() => projectId && void load(projectId, range)} title="Read the summary again">Refresh</button>
+    </div>
   </div>
 
   {#if data}
@@ -92,6 +157,13 @@
       <div class="stat fin" class:zero={!t.finished}><b>{t.finished}</b> finished</div>
       <div class="stat" class:zero={!t.created}><b>{t.created}</b> created</div>
     </div>
+    {#if jobError}<div class="para err" role="alert">{jobError}</div>{/if}
+    {#if data.text}
+      <div class="para">
+        <p><b>{RANGE_LABEL[shown]}:</b> {data.text}</p>
+        {#if data.textAt}<span class="note">{writtenNote(data.textAt, data.textStale, clock.now)}</span>{/if}
+      </div>
+    {/if}
   {/if}
 
   {#if active.length}
@@ -130,7 +202,7 @@
           <span class="gcount">{d.totals.cards} card{d.totals.cards === 1 ? "" : "s"} · {workDuration(d.totals.workingMs)}{d.totals.finished ? ` · ${d.totals.finished} finished` : ""}</span>
         </h2>
         <div class="rows">
-          {#each d.worked as c (c.id)}{@render row(c)}{/each}
+          {#each d.worked as c (c.id)}{@render row(c, textDay.get(c.id) === d.from ? (texts.get(c.id) ?? null) : null)}{/each}
         </div>
       </section>
     {/each}
@@ -138,7 +210,7 @@
     <section class="group">
       <h2>Worked on <span class="gcount">{parts.worked.length}</span></h2>
       <div class="rows">
-        {#each parts.worked as c (c.id)}{@render row(c)}{/each}
+        {#each parts.worked as c (c.id)}{@render row(c, c)}{/each}
       </div>
     </section>
   {/if}
@@ -147,15 +219,15 @@
     <details class="group">
       <summary>Created, not started <span class="gcount">{parts.createdOnly.length}</span></summary>
       <div class="rows">
-        {#each parts.createdOnly as c (c.id)}{@render row(c)}{/each}
+        {#each parts.createdOnly as c (c.id)}{@render row(c, null)}{/each}
       </div>
     </details>
   {/if}
 </div>
 
-{#snippet row(c: SummaryCard)}
+{#snippet row(c: SummaryCard, t: SummaryCard | null)}
   {@const e = endedLabel(c)}
-  <button class="row" onclick={() => void app.openCard(c.id)}>
+  <button class="row" class:worded={!!t?.summary} onclick={() => void app.openCard(c.id)}>
     <AgentMark agent={app.agent(c.agentId)} size={20} />
     <span class="main">
       <span class="title">{c.title || "Untitled"}</span>
@@ -166,7 +238,13 @@
         <span class="when">{c.runs ? timeSpan(c.firstAt, c.lastAt) : new Date(c.firstAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
         {#if c.created && c.runs}<span>new</span>{/if}
       </span>
-      {#if c.summary}<span class="text">{c.summary}</span>{/if}
+      {#if t?.summary}
+        <!-- Cut after a few lines; the whole text is in the tooltip. -->
+        <span class="text" title={t.summary}>{t.summary}</span>
+        {#if t.summaryAt}<span class="note">{writtenNote(t.summaryAt, t.summaryStale, clock.now)}</span>{/if}
+      {:else if t?.summaryNone}
+        <span class="note">No conversation to summarise</span>
+      {/if}
     </span>
     <span class="side">
       {#if c.runs}<span class="work"><b>{workDuration(c.workingMs)}</b> · {runsLabel(c.runs)}</span>{/if}
@@ -359,9 +437,43 @@
   }
   .text {
     font-size: 12px;
+    line-height: 1.45;
     color: var(--text-2);
-    margin-top: 3px;
-    white-space: pre-wrap;
+    margin-top: 4px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    overflow: hidden;
+  }
+  .note {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+  /* A row with a text is tall: the numbers stay beside the title. */
+  .row.worded {
+    align-items: flex-start;
+  }
+  .acts {
+    display: flex;
+    gap: 6px;
+  }
+  .para {
+    background: var(--bg-column);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .para p {
+    margin: 0;
+  }
+  .para.err {
+    color: var(--s-needs);
+    font-size: 12px;
   }
   .side {
     flex: none;

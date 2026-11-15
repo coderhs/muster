@@ -8,7 +8,7 @@ use muster_proto::{
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::rank;
-use crate::summary::{ActivityRow, CardInfo};
+use crate::summary::{ActivityRow, CardInfo, CardText, ProjectText};
 use crate::util::{err, internal, invalid, new_id, not_found, now_ms, Result};
 
 const MIGRATIONS: &[&str] = &[
@@ -127,7 +127,31 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE cards ADD COLUMN idle_stopped_at INTEGER;
     ALTER TABLE cards ADD COLUMN idle_kept TEXT;
     "#,
+    // v9: written summaries, cached per range
+    r#"
+    CREATE TABLE card_summaries (
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        range_from INTEGER NOT NULL,
+        range_to INTEGER NOT NULL,
+        text TEXT,
+        last_msg_at INTEGER NOT NULL,
+        covered_at INTEGER NOT NULL,
+        written_at INTEGER NOT NULL,
+        PRIMARY KEY (card_id, range_from, range_to)
+    );
+    CREATE TABLE project_summaries (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        range_from INTEGER NOT NULL,
+        range_to INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        written_at INTEGER NOT NULL,
+        PRIMARY KEY (project_id, range_from, range_to)
+    );
+    "#,
 ];
+
+/// Ranges whose written summary is kept per card and per project; the oldest go first.
+pub const SUMMARIES_KEEP: i64 = 12;
 
 /// Comments kept per card; the oldest are dropped beyond this.
 pub const COMMENTS_KEEP: i64 = 500;
@@ -1375,6 +1399,119 @@ impl Store {
         Ok((cards, rows))
     }
 
+    /// The written summaries of a project's cards for exactly this range.
+    pub fn card_texts(&self, project_id: &str, from: i64, to: i64) -> Result<Vec<CardText>> {
+        let mut st = self
+            .conn
+            .prepare_cached(
+                "SELECT s.card_id, s.text, s.last_msg_at, s.covered_at, s.written_at FROM cards c \
+                 JOIN card_summaries s ON s.card_id = c.id \
+                 WHERE c.project_id = ?1 AND s.range_from = ?2 AND s.range_to = ?3",
+            )
+            .map_err(sql_err)?;
+        let rows = st
+            .query_map(params![project_id, from, to], |r| {
+                Ok(CardText {
+                    card_id: r.get(0)?,
+                    text: r.get(1)?,
+                    last_msg_at: r.get(2)?,
+                    covered_at: r.get(3)?,
+                    written_at: r.get(4)?,
+                })
+            })
+            .map_err(sql_err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(sql_err)
+    }
+
+    /// Stores a card's summary for a range (`None`: nothing to summarise), read from a
+    /// conversation whose newest message is `last_msg_at`, and drops the card's oldest
+    /// ranges beyond [`SUMMARIES_KEEP`].
+    pub fn put_card_text(
+        &mut self,
+        card_id: &str,
+        (from, to): (i64, i64),
+        text: Option<&str>,
+        last_msg_at: i64,
+        now: i64,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO card_summaries (card_id, range_from, range_to, text, last_msg_at, covered_at, written_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) ON CONFLICT(card_id, range_from, range_to) DO UPDATE SET \
+                 text = excluded.text, last_msg_at = excluded.last_msg_at, covered_at = excluded.covered_at, \
+                 written_at = excluded.written_at",
+                params![card_id, from, to, text, last_msg_at, now],
+            )
+            .map_err(sql_err)?;
+        self.conn
+            .execute(
+                "DELETE FROM card_summaries WHERE card_id = ?1 AND rowid NOT IN (SELECT rowid FROM card_summaries \
+                 WHERE card_id = ?1 ORDER BY written_at DESC, rowid DESC LIMIT ?2)",
+                params![card_id, SUMMARIES_KEEP],
+            )
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
+    /// Records that the card's conversation was read again and had nothing new.
+    pub fn touch_card_text(&mut self, card_id: &str, (from, to): (i64, i64), now: i64) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE card_summaries SET covered_at = ?4 WHERE card_id = ?1 AND range_from = ?2 AND range_to = ?3",
+                params![card_id, from, to, now],
+            )
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
+    pub fn project_text(&self, project_id: &str, from: i64, to: i64) -> Result<Option<ProjectText>> {
+        self.conn
+            .query_row(
+                "SELECT text, written_at FROM project_summaries \
+                 WHERE project_id = ?1 AND range_from = ?2 AND range_to = ?3",
+                params![project_id, from, to],
+                |r| Ok(ProjectText { text: r.get(0)?, written_at: r.get(1)? }),
+            )
+            .optional()
+            .map_err(sql_err)
+    }
+
+    /// Stores (or with `None` removes) the paragraph of a range, keeping the newest
+    /// [`SUMMARIES_KEEP`] ranges of the project.
+    pub fn put_project_text(
+        &mut self,
+        project_id: &str,
+        (from, to): (i64, i64),
+        text: Option<&str>,
+        now: i64,
+    ) -> Result<()> {
+        let Some(text) = text else {
+            self.conn
+                .execute(
+                    "DELETE FROM project_summaries WHERE project_id = ?1 AND range_from = ?2 AND range_to = ?3",
+                    params![project_id, from, to],
+                )
+                .map_err(sql_err)?;
+            return Ok(());
+        };
+        self.conn
+            .execute(
+                "INSERT INTO project_summaries (project_id, range_from, range_to, text, written_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(project_id, range_from, range_to) DO UPDATE SET \
+                 text = excluded.text, written_at = excluded.written_at",
+                params![project_id, from, to, text, now],
+            )
+            .map_err(sql_err)?;
+        self.conn
+            .execute(
+                "DELETE FROM project_summaries WHERE project_id = ?1 AND rowid NOT IN (SELECT rowid FROM \
+                 project_summaries WHERE project_id = ?1 ORDER BY written_at DESC, rowid DESC LIMIT ?2)",
+                params![project_id, SUMMARIES_KEEP],
+            )
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
     pub fn activity_count(&self, card_id: &str) -> Result<i64> {
         self.conn
             .query_row("SELECT COUNT(*) FROM activity WHERE card_id = ?1", [card_id], |r| r.get(0))
@@ -1575,6 +1712,58 @@ mod tests {
         assert!(s.activity_count(&a.id).unwrap() > ACTIVITY_KEEP);
         s.prune_activity().unwrap();
         assert_eq!(s.activity_count(&a.id).unwrap(), ACTIVITY_KEEP);
+    }
+
+    #[test]
+    fn written_summaries_are_cached_per_range() {
+        let (mut s, p, cols) = store_with_project();
+        let a = card(&mut s, &p, &cols[0], "a");
+        let b = card(&mut s, &p, &cols[0], "b");
+        s.put_card_text(&a.id, (0, 100), Some("first"), 40, 1000).unwrap();
+        s.put_card_text(&b.id, (0, 100), None, 0, 1000).unwrap();
+        s.put_card_text(&a.id, (100, 200), Some("other range"), 150, 1001).unwrap();
+        let get = |s: &Store, id: &str| s.card_texts(&p.id, 0, 100).unwrap().into_iter().find(|t| t.card_id == id);
+        assert_eq!(s.card_texts(&p.id, 0, 100).unwrap().len(), 2);
+        assert_eq!(get(&s, &b.id).unwrap().text, None);
+        // Read again with nothing new, then rewritten.
+        s.touch_card_text(&a.id, (0, 100), 2000).unwrap();
+        let t = get(&s, &a.id).unwrap();
+        assert_eq!((t.text.as_deref(), t.last_msg_at, t.covered_at, t.written_at), (Some("first"), 40, 2000, 1000));
+        s.put_card_text(&a.id, (0, 100), Some("second"), 90, 3000).unwrap();
+        let t = get(&s, &a.id).unwrap();
+        assert_eq!((t.text.as_deref(), t.last_msg_at, t.covered_at, t.written_at), (Some("second"), 90, 3000, 3000));
+
+        assert_eq!(s.project_text(&p.id, 0, 100).unwrap(), None);
+        s.put_project_text(&p.id, (0, 100), Some("para"), 3000).unwrap();
+        s.put_project_text(&p.id, (0, 100), Some("para 2"), 4000).unwrap();
+        assert_eq!(
+            s.project_text(&p.id, 0, 100).unwrap(),
+            Some(ProjectText { text: "para 2".into(), written_at: 4000 })
+        );
+        s.put_project_text(&p.id, (0, 100), None, 5000).unwrap();
+        assert_eq!(s.project_text(&p.id, 0, 100).unwrap(), None);
+
+        // Only the newest ranges are kept.
+        for i in 0..(SUMMARIES_KEEP + 5) {
+            s.put_card_text(&b.id, (1000 + i, 2000 + i), Some("x"), 0, 10_000 + i).unwrap();
+            s.put_project_text(&p.id, (1000 + i, 2000 + i), Some("x"), 10_000 + i).unwrap();
+        }
+        let count = |s: &Store, sql: &str| s.conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM project_summaries"), SUMMARIES_KEEP);
+        assert_eq!(
+            count(&s, &format!("SELECT COUNT(*) FROM card_summaries WHERE card_id = '{}'", b.id)),
+            SUMMARIES_KEEP
+        );
+        assert!(get(&s, &b.id).is_none(), "the oldest range went");
+        assert!(s.project_text(&p.id, 1000 + SUMMARIES_KEEP + 4, 2000 + SUMMARIES_KEEP + 4).unwrap().is_some());
+        // The texts go with their card and their project.
+        s.delete_card(&a.id).unwrap();
+        assert_eq!(count(&s, &format!("SELECT COUNT(*) FROM card_summaries WHERE card_id = '{}'", a.id)), 0);
+        s.remove_project(&p.id).unwrap();
+        assert_eq!(
+            count(&s, "SELECT COUNT(*) FROM card_summaries") + count(&s, "SELECT COUNT(*) FROM project_summaries"),
+            0
+        );
     }
 
     #[test]

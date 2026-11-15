@@ -681,7 +681,7 @@ such session names, here and from the status line, are shown as words
 ## Round 12: project summary
 
 For the Summary tab and `muster summary`: what was worked on in a project during a
-time range, built from the activity log. No model is involved.
+time range, built from the activity log. The numbers involve no model.
 
 | Method | Params | Result |
 |---|---|---|
@@ -730,8 +730,8 @@ running), `needs_you`, `finished` (the agent reported the turn done), `idle` (th
 stopped otherwise: interrupted, or an agent that only reports output and silence), or
 `not_started` (created in the range, never run). **`sessionEnd`** is present when the
 session ended inside the range after that run: `idle_stopped` when the daemon stopped it
-for being idle, `exited` otherwise. `summary` is reserved for a written account of the
-work; the daemon does not send it yet.
+for being idle, `exited` otherwise. `summary` is a written account of the work, present
+once it has been asked for (Round 13).
 
 **`totals`**: `cards` and `workingMs` count cards with at least one run; `finished`
 those whose `outcome` is `finished`; `created` the cards created in the range.
@@ -746,3 +746,76 @@ the range: waiting cards first, the longest wait on top.
 
 A card's connection is refused (`unauthorized`): the summary names every card of the
 project, and a card may only see itself and the cards linked to it.
+
+## Round 13: written summaries
+
+A few sentences per card and a paragraph per project for a range, written by a small
+model through the user's own Claude Code. Nothing is written until a client asks.
+
+| Method | Params | Result |
+|---|---|---|
+| `project.summarize` | `{projectId, from, to}` | `{started: bool}` |
+
+| Event | Payload |
+|---|---|
+| `summary.changed` | `{projectId, from, to, done, total, running, error?}` |
+
+`project.summary` (Round 12) returns what has been written for exactly the range asked
+for:
+
+```
+SummaryCard    + summary?, summaryAt?, summaryStale?, summaryNone?
+ProjectSummary + text?, textAt?, textStale?, summarizing?: {done, total}
+```
+
+- `summary` and `summaryAt` are on the cards of the whole range (`cards`), not on those
+  inside `days`. `summaryNone` says the card had no conversation in the range that
+  could be read (a shell card, an agent without a readable transcript, a session that
+  said nothing); `summaryAt` is then when that was found.
+- `summaryStale`: the card ran after its conversation was last read for the text. This
+  comes from the activity log (`lastAt` against the time of the reading), so reading a
+  summary never opens a transcript.
+- `text` is the paragraph. `textStale`: a card with a text is stale or has a newer text
+  than the paragraph, or a card worked on has none yet.
+- `summarizing` is present while a job for this range runs.
+
+**`project.summarize`** starts a job and answers at once. `started` is `false` when a
+job for the project is already running (one per project; the request is then a no-op).
+Errors: `invalid` for an empty range, `not_found` for the project, `unavailable` when
+Claude Code is not installed. For every card with a run in the range, the job:
+
+1. reads the card's conversation inside the range from the agent's transcript: the
+   user's prompts and the assistant's text, without tool calls, tool output or
+   reasoning. Agents whose transcript has no times (Cursor) are taken whole. No
+   transcript, or nothing in the range, stores `summaryNone`.
+2. keeps the stored text when the newest message is the one it was written from;
+3. otherwise sends an excerpt of at most about 12,000 characters (when the conversation
+   is longer: the first prompt and the newest messages) and stores the answer as one
+   plain line of at most 600 characters.
+
+Then it writes the paragraph (at most 900 characters) from the card texts, if any text
+is newer than the paragraph. Two requests run at a time. `summary.changed` is sent when
+the job starts (`done: 0`), after each card (`done` counts cards looked at, rewritten or
+not) and at the end (`running: false`); clients read the texts with `project.summary`.
+The first failed request ends the job: its last event carries `error` (Claude Code not
+signed in, no answer within 60 seconds, ...), and what was written before stays.
+
+Each text is one process:
+
+```
+claude -p --model haiku --safe-mode --tools "" --strict-mcp-config
+       --no-session-persistence --disable-slash-commands
+       --system-prompt <fixed instructions> --output-format json
+```
+
+with the excerpt on stdin, in an empty folder of its own (`<home>/summarize`), and
+without the `MUSTER_*` and agent-session variables of the daemon's environment. It
+loads no project instructions, settings, hooks, skills, plugins or MCP servers, has no
+tools and saves no session. The instructions say that the excerpt is material to
+describe, not instructions; a closing tag inside the excerpt is defused. The answer is
+stripped of control characters before it is stored.
+
+The texts are kept per card and range (and per project and range for the paragraph),
+the newest 12 ranges each, and go with their card or project.
+
+Both the method and the texts are for the user's client: a card's connection is refused.

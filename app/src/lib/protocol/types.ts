@@ -363,6 +363,14 @@ export interface Methods {
   "docs.write": [{ projectId: Id; path: string; content: string; create?: boolean; expectedModifiedAt?: number }, { doc: DocEntry }];
   /** `from` inclusive, `to` exclusive (ms); `splits` cut the range into the parts returned in `days`. */
   "project.summary": [{ projectId: Id; from: number; to: number; splits?: number[] }, ProjectSummary];
+  /** Starts writing the summaries of a range and returns at once; `summary.changed` follows the job. */
+  "project.summarize": [{ projectId: Id; from: number; to: number }, { started: boolean }];
+}
+
+/** How far a `project.summarize` job is. */
+export interface SummaryProgress {
+  done: number;
+  total: number;
 }
 
 /** How a card's last run in a range ended; `idle` is a run that stopped without a finished turn. */
@@ -388,8 +396,14 @@ export interface SummaryCard {
   outcome: SummaryOutcome;
   sessionEnd?: SummarySessionEnd;
   created?: boolean;
-  /** A written summary of the work; reserved, not sent yet. */
+  /** A few sentences on what was done, written on request. Only on the whole range's cards, not inside `days`. */
   summary?: string;
+  /** When `summary` was written, or when the card was found to have nothing to summarise. */
+  summaryAt?: number;
+  /** The card ran again after its conversation was read for the summary. */
+  summaryStale?: boolean;
+  /** The card had no conversation in the range that could be read. */
+  summaryNone?: boolean;
 }
 
 export interface SummaryTotals {
@@ -427,6 +441,13 @@ export interface ProjectSummary {
   /** Most recent first, without the empty ones; absent when no `splits` were sent. */
   days?: SummaryDay[];
   active: SummaryActive[];
+  /** A paragraph on the whole range, written on request. */
+  text?: string;
+  textAt?: number;
+  /** Work went on, or a card's summary was rewritten, after `text` was written. */
+  textStale?: boolean;
+  /** Present while a job for this range is running. */
+  summarizing?: SummaryProgress;
 }
 
 /** `claude` is CLAUDE.md, `agents` is AGENTS.md, `doc` any other Markdown file. */
@@ -458,6 +479,8 @@ export interface Events {
   "link.changed": { link: Link; linked: boolean };
   "daemon.status": DaemonStatus;
   "comment.changed": { comment: Comment } | { removedId: Id; cardId: Id };
+  /** Progress of a `project.summarize` job; `running` is false on its last event, `error` says why it stopped early. */
+  "summary.changed": { projectId: Id; from: number; to: number; done: number; total: number; running: boolean; error?: string };
 }
 
 export type EventName = keyof Events;

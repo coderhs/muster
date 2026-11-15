@@ -119,12 +119,40 @@ Today, Yesterday, Last 7 days or Last 30 days (whole days in your local time).
 Working time is the time a card was Running. For Claude Code, Cursor and Codex a run is
 a turn; for the other agents and for shell cards it is a burst of terminal output, so
 their run counts are higher and their times rougher. The numbers come from Muster's own
-log of status changes: nothing is sent to a model. Deleted cards are not included, and
-only the newest 1000 status changes of a card are kept.
+log of status changes. Deleted cards are not included, and only the newest 1000 status
+changes of a card are kept.
+
+### Written summaries
+
+**Summarise** writes what was done, in words: two or three sentences under each card
+(what was asked, what was changed or found, how it ended) and one paragraph for the
+whole range at the top. It happens only when you press the button, never by itself.
+
+- The texts are kept. The next time you open the range they are there at once, and the
+  button reads **Update**: it rewrites only the cards whose conversation has gone on
+  since, and the paragraph if a card's text changed. "work has gone on since" under a
+  text says it is behind.
+- While it runs the button shows how far it is, and texts appear as they arrive.
+- Cards without a conversation Muster can read (shell cards, opencode, Gemini,
+  Antigravity) say "No conversation to summarise".
+- In a range of several days a card's text covers the whole range and is shown under
+  the most recent day the card was worked on.
+
+What it costs and where the text goes: each card text is one request to a small model
+(Haiku) through your own Claude Code, plus one request for the paragraph, so the first
+Summarise of a range with 7 cards makes 8 requests and counts against your Claude plan
+like any other Claude Code use. Muster sends an excerpt of the card's conversation in
+the range: your prompts and the agent's replies, without tool output, at most about
+12,000 characters however long the session was. It goes to Anthropic through Claude
+Code and nowhere else. The helper process gets no tools, no MCP servers and none of your
+project's instructions or hooks, and it is told to describe the conversation, not to
+follow anything written in it. Claude Code must be installed and signed in; if it is
+not, the reason is shown under the totals.
 
 The list is read when the tab opens, when you change the range or the project, and when
 you press Refresh. From a terminal: `muster summary <project> --since yesterday` (also
-`today`, `7d`, `30d`).
+`today`, `7d`, `30d`); it prints the written summaries the app has made and does not
+make any itself.
 
 ## Tracker
 

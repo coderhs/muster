@@ -1,6 +1,7 @@
 // Summary view: ranges in local days, and the words for what the daemon reports.
 
-import type { Card, Id, SummaryCard } from "../protocol/types";
+import type { Card, Id, ProjectSummary, SummaryCard, SummaryProgress } from "../protocol/types";
+import { agoLabel } from "../ui/time";
 
 export const RANGES = ["today", "yesterday", "7d", "30d"] as const;
 export type RangeKey = (typeof RANGES)[number];
@@ -86,6 +87,33 @@ export function timeSpan(firstAt: number, lastAt: number): string {
 /** Cards with a run in the range, and those only created in it. */
 export function splitWorked<T extends Pick<SummaryCard, "runs">>(cards: T[]): { worked: T[]; createdOnly: T[] } {
   return { worked: cards.filter((c) => c.runs > 0), createdOnly: cards.filter((c) => c.runs === 0) };
+}
+
+/** Whether the range has written texts already: the button then updates them instead of starting. */
+export function hasTexts(s: Pick<ProjectSummary, "text" | "cards">): boolean {
+  return !!s.text || s.cards.some((c) => !!c.summary);
+}
+
+/** What the button says while a job runs: the cards first, then the paragraph. */
+export function jobLabel(job: SummaryProgress): string {
+  return job.done < job.total ? `Summarising ${job.done + 1} of ${job.total}…` : "Writing the overview…";
+}
+
+/** "written 5m ago", with a remark when work went on afterwards. */
+export function writtenNote(at: number, stale: boolean | undefined, now: number): string {
+  return `written ${agoLabel(at, now)}${stale ? " · work has gone on since" : ""}`;
+}
+
+/**
+ * A card's text covers the whole range. In a range shown day by day it goes under the
+ * most recent day the card was worked on: the day (its `from`) per card id.
+ */
+export function textDays(days: Array<{ from: number; cards: Array<Pick<SummaryCard, "id" | "runs">> }>): Map<Id, number> {
+  const m = new Map<Id, number>();
+  for (const d of [...days].sort((a, b) => b.from - a.from)) {
+    for (const c of d.cards) if (c.runs > 0 && !m.has(c.id)) m.set(c.id, d.from);
+  }
+  return m;
 }
 
 /** The project's cards that run or wait for the user now: waiting first, the longest wait on top. */

@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "../protocol/types";
-import { activeNow, dayLabel, dayStart, endedLabel, rangeOf, runsLabel, splitWorked, timeSpan, workDuration } from "./summary";
+import { activeNow, dayLabel, dayStart, endedLabel, hasTexts, jobLabel, rangeOf, runsLabel, splitWorked, textDays, timeSpan, workDuration, writtenNote } from "./summary";
+
+describe("written summaries", () => {
+  it("knows whether the range has texts", () => {
+    const c = { id: "a", title: "a", agentId: "claude", columnId: "c", columnTitle: "", status: "idle" as const, hasSession: false, firstAt: 0, lastAt: 0, workingMs: 1, runs: 1, outcome: "finished" as const };
+    expect(hasTexts({ cards: [] })).toBe(false);
+    expect(hasTexts({ cards: [c, { ...c, summaryNone: true, summaryAt: 5 }] })).toBe(false);
+    expect(hasTexts({ cards: [{ ...c, summary: "Did it." }] })).toBe(true);
+    expect(hasTexts({ cards: [c], text: "All of it." })).toBe(true);
+  });
+
+  it("says how far the job is", () => {
+    expect(jobLabel({ done: 0, total: 7 })).toBe("Summarising 1 of 7…");
+    expect(jobLabel({ done: 2, total: 7 })).toBe("Summarising 3 of 7…");
+    // The cards are done; the paragraph is being written.
+    expect(jobLabel({ done: 7, total: 7 })).toBe("Writing the overview…");
+    expect(jobLabel({ done: 0, total: 0 })).toBe("Writing the overview…");
+  });
+
+  it("notes when a text was written and whether work went on", () => {
+    const now = 10 * 3_600_000;
+    expect(writtenNote(now - 5 * 60_000, false, now)).toBe("written 5m ago");
+    expect(writtenNote(now - 10_000, undefined, now)).toBe("written just now");
+    expect(writtenNote(now - 2 * 3_600_000, true, now)).toBe("written 2h ago · work has gone on since");
+  });
+
+  it("puts a card's text under the most recent day it was worked on", () => {
+    const days = [
+      { from: 200, cards: [{ id: "a", runs: 1 }, { id: "new", runs: 0 }] },
+      { from: 300, cards: [{ id: "b", runs: 2 }] },
+      { from: 100, cards: [{ id: "a", runs: 3 }, { id: "b", runs: 1 }, { id: "new", runs: 1 }] },
+    ];
+    expect([...textDays(days)].sort()).toEqual([["a", 200], ["b", 300], ["new", 100]]);
+    expect(textDays([]).size).toBe(0);
+  });
+});
 
 const HOUR = 3_600_000;
 // Local time, like the code under test: the 15th at 14:30.

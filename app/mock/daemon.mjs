@@ -191,8 +191,12 @@ function mockSummary(projectId, from, to, splits) {
   const active = own
     .filter((c) => c.status === "running" || c.status === "needs_you")
     .map((c) => ({ id: c.id, title: c.title, agentId: c.agentId, model: c.model ?? undefined, columnTitle: columns.get(c.columnId)?.title ?? "", status: c.status, statusSince: c.statusSince, hasSession: c.hasSession }));
-  return { from, to, cards: all, totals: totalsOf(all), days: cuts.length ? days : undefined, active };
+  const written = mockTexts.get(`${projectId}|${from}|${to}`);
+  const cardsOut = all.map((c) => ({ ...c, ...written?.cards.get(c.id) }));
+  return { from, to, cards: cardsOut, totals: totalsOf(all), days: cuts.length ? days : undefined, active, text: written?.text, textAt: written?.textAt, summarizing: written?.job ?? undefined };
 }
+// Written summaries per "project|from|to": {cards: Map<id, {summary?, summaryNone?, summaryAt}>, text?, textAt?, job?}.
+const mockTexts = new Map();
 
 const projColumns = (pid) => [...columns.values()].filter((c) => c.projectId === pid).sort((a, b) => a.position - b.position);
 const colCards = (cid) =>
@@ -793,7 +797,38 @@ const handlers = {
     need(to > from, "invalid", "the range must end after it starts");
     return mockSummary(projectId, from, to, splits);
   },
-  "board.get":({ projectId }) => {
+  // Canned texts, one card at a time, so the progress and the arrival of texts can be seen.
+  "project.summarize": ({ projectId, from, to }) => {
+    need(projects.has(projectId), "not_found", "project not found");
+    need(to > from, "invalid", "the range must end after it starts");
+    const key = `${projectId}|${from}|${to}`;
+    const entry = mockTexts.get(key) ?? { cards: new Map(), job: null };
+    if (entry.job) return { started: false };
+    mockTexts.set(key, entry);
+    const worked = mockSummary(projectId, from, to, []).cards.filter((c) => c.runs > 0);
+    entry.job = { done: 0, total: worked.length };
+    const tell = (running) => broadcast("summary.changed", { projectId, from, to, ...entry.job, running });
+    tell(true);
+    worked.forEach((c, i) =>
+      setTimeout(() => {
+        const talks = c.agentId !== "shell";
+        const summary = `The agent was asked to ${c.title.charAt(0).toLowerCase()}${c.title.slice(1)}. It changed the code involved and ran the tests. The work ended ${c.outcome === "finished" ? "with the turn finished" : "without a finished turn"}.`;
+        // A text stays until the conversation goes on; the mock's never does.
+        if (!entry.cards.has(c.id)) entry.cards.set(c.id, talks ? { summary, summaryAt: now() } : { summaryNone: true, summaryAt: now() });
+        entry.job.done++;
+        tell(true);
+      }, 900 * (i + 1)),
+    );
+    setTimeout(() => {
+      const n = [...entry.cards.values()].filter((t) => t.summary).length;
+      if (n) Object.assign(entry, { text: `Work went on in ${n} card${n === 1 ? "" : "s"}: mostly the daemon's storage and its tmux backend, with one card still waiting for an answer.`, textAt: entry.textAt ?? now() });
+      const last = entry.job;
+      entry.job = null;
+      broadcast("summary.changed", { projectId, from, to, ...last, running: false });
+    }, 900 * (worked.length + 1));
+    return { started: true };
+  },
+  "board.get": ({ projectId }) => {
     const p = projects.get(projectId);
     need(p, "not_found", "project not found");
     const own = [...cards.values()].filter((c) => c.projectId === p.id);

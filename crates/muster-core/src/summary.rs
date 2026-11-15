@@ -130,7 +130,65 @@ pub fn build(
     });
 
     let (cards, totals) = range(from, to);
-    ProjectSummaryResult { from, to, cards, totals, days, active }
+    ProjectSummaryResult {
+        from,
+        to,
+        cards,
+        totals,
+        days,
+        active,
+        text: None,
+        text_at: None,
+        text_stale: false,
+        summarizing: None,
+    }
+}
+
+/// A cached written summary of one card for one range.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardText {
+    pub card_id: String,
+    /// `None`: the card had no conversation in the range that could be read.
+    pub text: Option<String>,
+    /// Time of the newest conversation message the text was written from (0: none).
+    pub last_msg_at: i64,
+    /// When the conversation was last read for this text.
+    pub covered_at: i64,
+    pub written_at: i64,
+}
+
+/// A cached paragraph on a whole range of a project.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectText {
+    pub text: String,
+    pub written_at: i64,
+}
+
+/// Puts the cached texts of a range on its summary and says which are out of date.
+///
+/// A card's text is stale when the card ran after its conversation was last read:
+/// that is known from the activity log, without opening a transcript. The paragraph is
+/// stale when a worked card has no text yet, has a stale one, or got a newer one.
+pub fn attach_texts(r: &mut ProjectSummaryResult, cards: &[CardText], project: Option<&ProjectText>) {
+    let by_id: HashMap<&str, &CardText> = cards.iter().map(|t| (t.card_id.as_str(), t)).collect();
+    let mut behind = false;
+    for c in r.cards.iter_mut().filter(|c| c.runs > 0) {
+        let Some(t) = by_id.get(c.id.as_str()) else {
+            behind = true;
+            continue;
+        };
+        c.summary = t.text.clone();
+        c.summary_none = t.text.is_none();
+        c.summary_at = Some(t.written_at);
+        c.summary_stale = c.last_at > t.covered_at;
+        // A card without a conversation has nothing the paragraph could be missing.
+        behind |= t.text.is_some() && (c.summary_stale || project.is_some_and(|p| t.written_at > p.written_at));
+    }
+    if let Some(p) = project {
+        r.text = Some(p.text.clone());
+        r.text_at = Some(p.written_at);
+        r.text_stale = behind;
+    }
 }
 
 fn totals(cards: &[SummaryCard]) -> SummaryTotals {
@@ -246,6 +304,9 @@ fn slice(card: &CardInfo, events: &[(i64, Event)], from: i64, to: i64, now: i64)
         session_end,
         created,
         summary: None,
+        summary_at: None,
+        summary_stale: false,
+        summary_none: false,
     })
 }
 
@@ -443,6 +504,68 @@ mod tests {
         assert_eq!(r.cards.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
         // Active now: the card waiting for the user comes first.
         assert_eq!(r.active.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["b", "c"]);
+    }
+
+    #[test]
+    fn texts_and_staleness() {
+        let rows = [
+            status("a", DAY0 + HOUR, "idle", "running"),
+            status("a", DAY0 + 2 * HOUR, "running", "done"),
+            status("b", DAY0 + HOUR, "idle", "running"),
+            status("b", DAY0 + 3 * HOUR, "running", "done"),
+            status("c", DAY0 + HOUR, "idle", "running"),
+            status("c", DAY0 + 2 * HOUR, "running", "idle"),
+            created("d", DAY0 + HOUR),
+            status("e", DAY0 + 4 * HOUR, "idle", "running"),
+            status("e", DAY0 + 5 * HOUR, "running", "done"),
+        ];
+        let cards = ["a", "b", "c", "d", "e"].map(|id| card(id, CardStatus::Idle));
+        let text = |id: &str, text: Option<&str>, at: i64| CardText {
+            card_id: id.into(),
+            text: text.map(str::to_string),
+            last_msg_at: at,
+            covered_at: at,
+            written_at: at,
+        };
+        // Read at 02:30: `a` had finished, `b` went on until 03:00, `c` has no conversation.
+        let read = DAY0 + 2 * HOUR + 30 * MIN;
+        let texts = [text("a", Some("Did a."), read), text("b", Some("Did b."), read), text("c", None, read)];
+        let paragraph = ProjectText { text: "Overall.".into(), written_at: read + MIN };
+
+        // Without `e`, only `b` is behind.
+        let mut r = build(&cards[..4], &rows[..7], DAY0, DAY1, &[], LATER);
+        attach_texts(&mut r, &texts, Some(&paragraph));
+        let get = |r: &ProjectSummaryResult, id: &str| r.cards.iter().find(|c| c.id == id).unwrap().clone();
+        let a = get(&r, "a");
+        assert_eq!(
+            (a.summary.as_deref(), a.summary_at, a.summary_stale, a.summary_none),
+            (Some("Did a."), Some(read), false, false)
+        );
+        assert!(get(&r, "b").summary_stale);
+        let c = get(&r, "c");
+        assert_eq!((c.summary, c.summary_none, c.summary_at), (None, true, Some(read)));
+        // A draft is not summarised.
+        assert_eq!((get(&r, "d").summary_at, get(&r, "d").summary_none), (None, false));
+        assert_eq!((r.text.as_deref(), r.text_at, r.text_stale), (Some("Overall."), Some(read + MIN), true));
+
+        // Everything read after the work ended: nothing is stale.
+        let late = [text("a", Some("Did a."), DAY0 + 4 * HOUR), text("b", Some("Did b."), DAY0 + 4 * HOUR)];
+        let fresh = ProjectText { text: "Overall.".into(), written_at: DAY0 + 4 * HOUR };
+        let mut r = build(&cards[..2], &rows[..4], DAY0, DAY1, &[], LATER);
+        attach_texts(&mut r, &late, Some(&fresh));
+        assert!(!r.text_stale && r.cards.iter().all(|c| !c.summary_stale));
+        // A card text written after the paragraph, or a worked card without one, makes it stale.
+        let older = ProjectText { text: "Overall.".into(), written_at: DAY0 + 3 * HOUR + 30 * MIN };
+        let mut r = build(&cards[..2], &rows[..4], DAY0, DAY1, &[], LATER);
+        attach_texts(&mut r, &late, Some(&older));
+        assert!(r.text_stale);
+        let mut r = build(&cards, &rows, DAY0, DAY1, &[], LATER);
+        attach_texts(&mut r, &late, Some(&fresh));
+        assert!(r.text_stale && get(&r, "e").summary_at.is_none());
+        // No paragraph yet: nothing to call stale.
+        let mut r = build(&cards, &rows, DAY0, DAY1, &[], LATER);
+        attach_texts(&mut r, &late, None);
+        assert_eq!((r.text.clone(), r.text_stale), (None, false));
     }
 
     #[test]

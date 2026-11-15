@@ -186,6 +186,7 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("docs.read", json!({"projectId": pid, "path": "CLAUDE.md"})),
         ("docs.write", json!({"projectId": pid, "path": "CLAUDE.md", "content": "pwned"})),
         ("project.summary", json!({"projectId": pid, "from": 0, "to": 4102444800000i64})),
+        ("project.summarize", json!({"projectId": pid, "from": 0, "to": 4102444800000i64})),
     ];
     for (m, p) in refused {
         let e = k.call(m, p.clone()).await.expect_err(&format!("{m} {p} must be refused"));
