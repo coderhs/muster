@@ -10,6 +10,12 @@
 # The app is signed ad hoc, not with an Apple Developer ID, and is not notarized, so
 # macOS asks the recipient to allow it once; the instructions in the zip say how.
 #
+# To sign with a Developer ID and notarize instead, set these before running it (the
+# bundler picks them up): APPLE_SIGNING_IDENTITY ("Developer ID Application: Name
+# (TEAMID)", with that certificate in the keychain), and either APPLE_ID,
+# APPLE_PASSWORD (an app-specific password) and APPLE_TEAM_ID, or APPLE_API_KEY,
+# APPLE_API_ISSUER and APPLE_API_KEY_PATH. The recipient then needs no "allow" step.
+#
 # Unlike scripts/install-stable.sh, the build rewrites source paths recorded in the
 # binaries, which would otherwise carry this machine's home folder name.
 set -eu
@@ -70,4 +76,6 @@ zip="$out/Muster-$commit-macos-arm64.zip"
 [ ! -e "$zip" ] || mv "$zip" "$HOME/.Trash/$(basename "$zip" .zip)-$(date +%Y%m%d-%H%M%S).zip"
 # ditto keeps the code signature and extended attributes intact.
 (cd "$stage" && ditto -c -k --sequesterRsrc . "$zip")
+# Only the zip is kept: a loose Muster.app here would show up in Spotlight.
+mv "$stage/Muster.app" "$HOME/.Trash/Muster-package-$(date +%Y%m%d-%H%M%S).app"
 echo "$zip"
