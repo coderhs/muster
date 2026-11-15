@@ -53,7 +53,7 @@ Agent    {id, label, color, installed}
 |---|---|---|
 | `hello` | `{token, client: "desktop"\|"mobile"\|"cli", protocol: 1}` | `{protocol: 1, daemonVersion}` |
 | `project.list` | `{}` | `{projects: Project[]}` |
-| `project.add` | `{path, name?, color?}` | `{project}` (also creates the three default columns) |
+| `project.add` | `{path, name?, color?}` | `{project}` (also creates the default columns: To Do, In Progress, Review, Done) |
 | `project.update` | `{id, name?, color?, position?}` | `{project}` |
 | `project.remove` | `{id}` | `{}` (refused with `conflict` while any card has a live session) |
 | `board.get` | `{projectId}` | `{project, columns: Column[], cards: Card[]}` |
@@ -595,7 +595,55 @@ A stopped session is asked to quit (Ctrl+C twice) and then removed. The card bec
 `card.start` resumes the conversation and clears `idleStoppedAt`. `idleKept` is cleared
 when the card is no longer idle, when it is stopped, and when `keepRunning` is set.
 
-## Round 9: raw terminal input
+## Round 9: project documents
+
+For the Docs tab. The methods are for the user's client only; a card's connection is
+refused.
+
+| Method | Params | Result |
+|---|---|---|
+| `docs.list` | `{projectId}` | `{docs: DocEntry[], truncated?: bool}` |
+| `docs.read` | `{projectId, path}` | `{path, content, modifiedAt, truncated?: bool}` |
+| `docs.write` | `{projectId, path, content, create?: bool, expectedModifiedAt?: ms}` | `{doc: DocEntry}` |
+
+```
+DocEntry {path, kind, size, modifiedAt}
+           kind: "claude" | "agents" | "doc"
+```
+
+`docs.list` reads the project's folder when asked; nothing is watched or cached. It
+lists Markdown files (`.md`, `.markdown`):
+
+- at the top of the project, where `CLAUDE.md` and `CLAUDE.local.md` are `claude`,
+  `AGENTS.md` is `agents`, and everything else is `doc`;
+- `.claude/CLAUDE.md` and `.claude/CLAUDE.local.md`, as `claude`;
+- under `docs/` (or `doc/`), five folders deep, skipping hidden entries and linked
+  folders.
+
+`path` is relative to the project's folder with `/` separators. The order is instruction
+files, then the README, then the rest by path. At most 300 files are listed;
+`truncated` says there were more.
+
+`docs.read` takes a `path` from the list. It returns `invalid` for a path that is
+absolute, contains `.` or `..`, or does not name a Markdown file, and `not_found` for a
+file that does not exist or that a link takes outside the project's folder. At most
+512 KB is returned, as UTF-8 with invalid bytes replaced; `truncated` says the file is
+longer.
+
+`docs.write` saves a file of at most 512 KB. Its `path` must be one the list would
+show: a Markdown file at the top of the project, `CLAUDE.md` or `CLAUDE.local.md` in
+`.claude/`, or a file under `docs/` (or `doc/`) no deeper than the list reaches, with no
+hidden folder on the way; anything else is `invalid`.
+
+- With `create: true` the file must not exist (`conflict` if it does). Missing folders
+  are made, unless a folder on the way is a link that leaves the project.
+- Otherwise the file must exist (`not_found`). With `expectedModifiedAt` (the
+  `modifiedAt` from `docs.read`) the save is refused with `conflict` when the file has
+  changed since, so that an agent's edit is not overwritten unseen. The text is written
+  beside the file and moved into place; a link to another file of the project is
+  written through and stays a link.
+
+## Round 10: raw terminal input
 
 `term.write` accepts `raw?: bool`. Input normally goes through the session's terminal
 client, which reads it as keys and re-encodes them for the program. A key the program's

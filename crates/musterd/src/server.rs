@@ -319,6 +319,25 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             to_value(BoardResult { project, columns, cards, links })
         }
 
+        Method::DocsList(p) => {
+            let project = st.store.lock().unwrap().get_project(&p.project_id)?;
+            let (docs, truncated) = crate::docs::list(Path::new(&project.path));
+            to_value(DocsListResult { docs, truncated })
+        }
+
+        Method::DocsRead(p) => {
+            let project = st.store.lock().unwrap().get_project(&p.project_id)?;
+            let (content, truncated, modified_at) = crate::docs::read(Path::new(&project.path), &p.path)?;
+            to_value(DocsReadResult { path: p.path, content, modified_at, truncated })
+        }
+
+        Method::DocsWrite(p) => {
+            let project = st.store.lock().unwrap().get_project(&p.project_id)?;
+            let root = Path::new(&project.path);
+            let doc = crate::docs::write(root, &p.path, &p.content, p.create, p.expected_modified_at)?;
+            to_value(DocsWriteResult { doc })
+        }
+
         Method::ColumnCreate(p) => {
             let column =
                 st.store.lock().unwrap().create_column(&p.project_id, &p.title, p.color.as_deref(), p.category)?;

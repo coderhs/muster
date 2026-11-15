@@ -3,6 +3,7 @@
 mod accounts;
 mod agents;
 mod context;
+mod docs;
 mod idle;
 mod launchd;
 mod scrollback;

@@ -142,8 +142,14 @@ pub mod title_source {
     pub const AGENT: &str = "agent";
 }
 
-pub const DEFAULT_COLUMNS: &[(&str, ColumnCategory)] =
-    &[("To Do", ColumnCategory::Unstarted), ("In Progress", ColumnCategory::Started), ("Done", ColumnCategory::Done)];
+/// Review is work that is finished by its agent and waits for the user to look at it,
+/// so it still counts as started.
+pub const DEFAULT_COLUMNS: &[(&str, ColumnCategory)] = &[
+    ("To Do", ColumnCategory::Unstarted),
+    ("In Progress", ColumnCategory::Started),
+    ("Review", ColumnCategory::Started),
+    ("Done", ColumnCategory::Done),
+];
 
 const PALETTE: &[&str] = &["#5b8def", "#e5734a", "#46a758", "#9b6cd9", "#d6a21e", "#e0558a", "#2fa4a9"];
 
@@ -1388,10 +1394,14 @@ mod tests {
     #[test]
     fn project_defaults() {
         let (mut s, p, cols) = store_with_project();
-        assert_eq!(cols.len(), 3);
+        assert_eq!(
+            cols.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(),
+            ["To Do", "In Progress", "Review", "Done"]
+        );
         assert_eq!(s.list_columns(&p.id).unwrap(), cols);
         assert_eq!(cols[0].category, ColumnCategory::Unstarted);
-        assert_eq!(cols[2].category, ColumnCategory::Done);
+        assert_eq!(cols[2].category, ColumnCategory::Started);
+        assert_eq!(cols[3].category, ColumnCategory::Done);
         assert_eq!(s.add_project("/tmp/x", "dup", None).unwrap_err().code, ErrorCode::Conflict);
         let (q, _) = s.add_project("/tmp/y", "y", Some("#000")).unwrap();
         assert_eq!(q.position, 1);
@@ -1605,12 +1615,12 @@ mod tests {
         let (_, moved, shifted) = s.delete_column(&cols[1].id, &cols[2].id).unwrap();
         assert_eq!(moved.len(), 2);
         assert_eq!(titles(&s, &cols[2]), ["z", "x", "y"]);
-        assert_eq!(shifted.len(), 1);
-        assert_eq!(s.list_columns(&p.id).unwrap().iter().map(|c| c.position).collect::<Vec<_>>(), [0, 1]);
-        let nc = s.create_column(&p.id, "Review", None, None).unwrap();
-        assert_eq!(nc.position, 2);
+        assert_eq!(shifted.len(), 2);
+        assert_eq!(s.list_columns(&p.id).unwrap().iter().map(|c| c.position).collect::<Vec<_>>(), [0, 1, 2]);
+        let nc = s.create_column(&p.id, "Blocked", None, None).unwrap();
+        assert_eq!(nc.position, 3);
         let ch = s.update_column(&nc.id, None, None, None, Some(0)).unwrap();
-        assert_eq!(ch.len(), 3);
+        assert_eq!(ch.len(), 4);
         assert_eq!(s.list_columns(&p.id).unwrap()[0].id, nc.id);
     }
 }
