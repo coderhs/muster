@@ -6,6 +6,7 @@ mod context;
 mod docs;
 mod idle;
 mod launchd;
+mod rename;
 mod scrollback;
 mod server;
 mod state;

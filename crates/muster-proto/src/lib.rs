@@ -676,6 +676,9 @@ pub struct AgentCapabilities {
     pub usage: bool,
     /// `card.start` resumes the agent's own session.
     pub resume: bool,
+    /// `card.aiRename` can ask the agent to name its session.
+    #[serde(default)]
+    pub ai_rename: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -1326,6 +1329,7 @@ pub enum Method {
     DocsList(DocsListParams),
     DocsRead(DocsReadParams),
     DocsWrite(DocsWriteParams),
+    CardAiRename(IdParams),
 }
 
 macro_rules! methods {
@@ -1404,6 +1408,7 @@ methods! {
     DocsList => "docs.list",
     DocsRead => "docs.read",
     DocsWrite => "docs.write",
+    CardAiRename => "card.aiRename",
 }
 
 impl Method {

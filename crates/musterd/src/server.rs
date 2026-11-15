@@ -688,6 +688,8 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
 
         Method::CardHandoff(p) => to_value(CardResult { card: crate::context::handoff(&st, &p).await? }),
 
+        Method::CardAiRename(p) => to_value(CardResult { card: crate::rename::start(&st, &p.id).await? }),
+
         Method::AgentList(_) => {
             let installed = st.installed_agents.get_or_init(|| find_installed(st.backend.shell().to_string())).await;
             let mut list = agents::list(|cmd| installed.contains_key(cmd));

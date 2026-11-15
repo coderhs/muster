@@ -233,6 +233,7 @@ async fn opencode_activity_queries_and_chat() {
     assert_eq!(caps("opencode")["chat"], true);
     assert_eq!(caps("shell")["statusSource"], "activity");
     assert_eq!(caps("shell")["resume"], false);
+    assert_eq!((caps("claude")["aiRename"].clone(), caps("codex")["aiRename"].clone()), (json!(true), json!(false)));
 
     let card = start(&mut c, &pid, &col, "opencode").await;
     let id = card["id"].as_str().unwrap().to_string();

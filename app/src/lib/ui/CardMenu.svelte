@@ -3,6 +3,7 @@
   import Popover from "./Popover.svelte";
   import Icon from "./Icon.svelte";
   import AgentMark from "./AgentMark.svelte";
+  import { aiRename, requestAiRename } from "./aiRename";
 
   const app = useApp();
   // Captured once: the menu closes (and app.cardMenu becomes null) before actions run.
@@ -14,6 +15,7 @@
     const i = list.findIndex((a) => a.id === card?.agentId);
     return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
   });
+  const rename = $derived(card ? aiRename(card, app.agent(card.agentId)) : { offered: false, blocked: null });
   const close = () => (app.cardMenu = null);
 
   function act(f: () => unknown) {
@@ -35,6 +37,9 @@
       <button class="mi" onclick={() => act(() => app.startCard(card.id))}><Icon name="play" size={14} />Start</button>
     {/if}
     <button class="mi" onclick={() => act(() => (app.linking = { cardId: card.id, anchor: m.anchor }))}><Icon name="link" size={14} />Link to card…</button>
+    {#if rename.offered}
+      <button class="mi" disabled={!!rename.blocked} title={rename.blocked} onclick={() => act(() => requestAiRename(app, card.id))}><Icon name="pencil" size={14} />Rename with AI</button>
+    {/if}
     {#if agents.length}
       <div class="sep"></div>
       <div class="sub">Hand off to</div>

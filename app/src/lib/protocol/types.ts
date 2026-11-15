@@ -175,6 +175,8 @@ export interface AgentCapabilities {
   context: boolean;
   usage: boolean;
   resume: boolean;
+  /** `card.aiRename` works for this agent. Absent from older daemons. */
+  aiRename?: boolean;
 }
 
 export interface Notice {
@@ -350,6 +352,7 @@ export interface Methods {
   "message.send": [{ cardId: Id; fromCardId?: Id; text: string }, { message: Message }];
   "message.cancel": [{ id: Id }, Record<string, never>];
   "card.handoff": [{ id: Id; agentId?: string }, { card: Card }];
+  "card.aiRename": [{ id: Id }, { card: Card }];
   "daemon.status": [Record<string, never>, DaemonStatus];
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];

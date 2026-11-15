@@ -650,3 +650,30 @@ client, which reads it as keys and re-encodes them for the program. A key the pr
 terminal type cannot express is then delivered as its plain equivalent: Ctrl+Enter sent
 as `ESC [ 13 ; 5 u` arrives as Enter. With `raw: true` the daemon hands the bytes to the
 program unchanged. The app uses it for Ctrl+Enter in Claude Code cards ("send now").
+
+## Round 11: renaming a card with AI
+
+| Method | Params | Result |
+|---|---|---|
+| `card.aiRename` | `{id}` | `{card}` |
+
+Asks the card's agent to name its own session from the conversation so far, and takes
+that name as the card's title. It works for agents whose `capabilities.aiRename` is true
+(`agent.list`); today that is Claude Code, whose `/rename` command with no argument
+generates a name.
+
+The daemon sets `titleAuto` to true (also on a card the user had named), types the
+command and Enter into the session, and returns the card at once. Claude Code does not
+refresh its status line after `/rename`, so the daemon watches the transcript for the
+`custom-title` line the command appends (for up to 20 seconds) and then sets the title,
+announced with `card.changed`. Generated names are kebab-case (`fix-login-redirect`);
+such session names, here and from the status line, are shown as words
+("Fix login redirect").
+
+- `invalid`: the agent has no rename command (other agents, shell cards).
+- `conflict`: the card has no live session, is not between turns (status other than
+  `idle` or `done`), or has no conversation yet. Nothing is ever typed mid-turn.
+- A request for a card whose rename is still under way types nothing and returns the
+  card.
+- A title set with `card.update` afterwards stays, as before (`titleAuto: false`).
+- The method is for the user's client only; a card's connection is refused.

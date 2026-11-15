@@ -269,6 +269,14 @@ impl AgentAdapter for ClaudeCode {
         transcript::read_since(transcript, after, max_messages)
     }
 
+    fn rename_command(&self) -> Option<&'static str> {
+        Some("/rename")
+    }
+
+    fn session_name_since(&self, transcript: &Path, after: u64) -> io::Result<Option<String>> {
+        transcript::custom_title_since(transcript, after)
+    }
+
     fn context_usage(&self, transcript: &Path) -> io::Result<Option<ContextUsage>> {
         transcript::context_usage(transcript)
     }

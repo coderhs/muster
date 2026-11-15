@@ -65,6 +65,11 @@ prompt is not sent when resuming.
   every comment says who wrote it.
 - The details column can be hidden with its button in the card's title bar or ⌘I,
   which gives the terminal the full width.
+- **Rename with AI**, next to the title and in the card's right-click menu, asks
+  Claude Code to name the session from the conversation so far (it types `/rename`
+  into the session) and uses that name as the card's title. It is available on Claude
+  Code cards with a running session that is between turns; type a title yourself at
+  any time to keep your own.
 
 ## Sidebar
 

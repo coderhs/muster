@@ -165,6 +165,7 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("message.send", json!({"cardId": x, "text": "hi"})),
         ("card.update", json!({"id": x, "notes": "pwned"})),
         ("card.update", json!({"id": a, "title": "renamed"})),
+        ("card.aiRename", json!({"id": a})),
         ("card.move", json!({"id": x, "columnId": col})),
         ("card.get", json!({"id": x})),
         ("comment.add", json!({"cardId": x, "text": "hi"})),

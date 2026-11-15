@@ -217,6 +217,18 @@ pub trait AgentAdapter: Send + Sync {
         None
     }
 
+    /// The command that, typed at the agent's prompt between turns, makes it name its
+    /// session from the conversation (Claude Code: `/rename`).
+    fn rename_command(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The newest session name the agent recorded in its transcript after byte offset
+    /// `after`, if any.
+    fn session_name_since(&self, _transcript: &Path, _after: u64) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Read a page of chat messages, newest last. `before` is a byte offset from a previous
     /// [`ChatPage::older`]; `None` starts at the end of the file. Reads at most about
     /// `max_messages` messages and never the whole file unless it is small.

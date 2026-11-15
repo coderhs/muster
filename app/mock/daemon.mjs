@@ -63,9 +63,10 @@ const cap = (statusSource, on) => ({
   context: on.includes("context"),
   usage: on.includes("usage"),
   resume: on.includes("resume"),
+  aiRename: on.includes("aiRename"),
 });
 const AGENTS = [
-  { id: "claude", label: "Claude Code", color: "#d97757", installed: true, capabilities: cap("hooks", ["approvals", "questions", "chat", "context", "usage", "resume"]) },
+  { id: "claude", label: "Claude Code", color: "#d97757", installed: true, capabilities: cap("hooks", ["approvals", "questions", "chat", "context", "usage", "resume", "aiRename"]) },
   { id: "codex", label: "Codex", color: "#10a37f", installed: true, capabilities: cap("log", ["chat", "context", "usage", "resume"]) },
   { id: "cursor", label: "Cursor", color: "#7c7cf8", installed: false, capabilities: cap("hooks", ["questions", "chat", "context", "usage", "resume"]) },
   { id: "opencode", label: "opencode", color: "#e2b340", installed: true, capabilities: cap("activity", ["chat", "context", "resume"]) },
@@ -643,6 +644,8 @@ class Fail extends Error {
     this.code = code;
   }
 }
+// Cards with a mock AI rename under way.
+const renaming = new Set();
 const need = (cond, code, msg) => {
   if (!cond) throw new Fail(code, msg);
 };
@@ -849,6 +852,27 @@ const handlers = {
     links.add(linkKey(src.id, c.id));
     const [x, y] = linkKey(src.id, c.id).split("|");
     broadcast("link.changed", { link: { a: x, b: y }, linked: true });
+    return { card: c };
+  },
+  "card.aiRename": ({ id: cid }) => {
+    const c = getCard(cid);
+    need(c.agentId === "claude", "invalid", "this agent cannot name its own session");
+    need(c.hasSession, "conflict", "the card has no running session");
+    need(c.status === "idle" || c.status === "done", "conflict", "the agent is busy; try again when it is between turns");
+    c.titleAuto = true;
+    c.updatedAt = now();
+    cardEvent(c);
+    if (!renaming.has(cid)) {
+      renaming.add(cid);
+      setTimeout(() => {
+        renaming.delete(cid);
+        const k = cards.get(cid);
+        if (!k || !k.titleAuto) return;
+        k.title = "Tidy the board layout";
+        k.updatedAt = now();
+        cardEvent(k);
+      }, 1200);
+    }
     return { card: c };
   },
   "column.create": ({ projectId, title, color, category }) => {

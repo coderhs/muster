@@ -19,6 +19,7 @@
   import { agoLabel } from "./time";
   import { clock } from "../state/clock.svelte";
   import { caps, reasonLabel } from "../agent/agent";
+  import { aiRename, requestAiRename } from "./aiRename";
 
   let { cardId }: { cardId: Id } = $props();
   const app = useApp();
@@ -98,6 +99,7 @@
   );
   let chatMounted = $state(false);
   const cap = $derived(caps(agent));
+  const rename = $derived(card ? aiRename(card, agent) : { offered: false, blocked: null });
   const hasChat = $derived(!!card && cap.chat);
   const canResume = $derived(!!card?.agentSessionId && cap.resume);
   const showChat = $derived(hasChat && tab === "chat");
@@ -330,6 +332,16 @@
         {:else if card.titleAuto === false}
           <button class="btn small ghost" title="Let Muster name this card from the session again" onclick={() => app.updateCard({ id: cardId, titleAuto: true }).catch(() => {})}>
             Auto title
+          </button>
+        {/if}
+        {#if rename.offered}
+          <button
+            class="btn small ghost"
+            disabled={!!rename.blocked}
+            title={rename.blocked ?? "Ask the agent to name this session from the conversation so far"}
+            onclick={() => requestAiRename(app, cardId)}
+          >
+            Rename with AI
           </button>
         {/if}
         {#if card.status === "needs_you" && card.needsYouReason}
