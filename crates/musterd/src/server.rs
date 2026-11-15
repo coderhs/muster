@@ -510,6 +510,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
 
         Method::SessionAttach(p) => {
             st.store.lock().unwrap().get_card(&p.card_id)?;
+            st.touched.touch(&p.card_id);
             let conn = ctx.conn.clone();
             let sid = p.card_id.clone();
             let sink: attach::Sink =
@@ -525,6 +526,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
         }
 
         Method::SessionDetach(p) => {
+            st.touched.touch(&p.card_id);
             if st.hub.detach(&p.card_id, ctx.conn_id) && st.hub.subscriber_count(&p.card_id) == 0 {
                 st.scrollback.save(&st, &p.card_id).await;
             }
@@ -548,6 +550,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                 st.store.lock().unwrap().get_card(&p.card_id)?;
                 return Err(err(ErrorCode::NotFound, "no live session"));
             }
+            st.touched.touch(&p.card_id);
             st.hub.write(&p.card_id, p.data.as_bytes()).await?;
             to_value(Empty {})
         }

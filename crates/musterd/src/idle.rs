@@ -2,8 +2,8 @@
 //! that can be resumed. Off unless `idle_stop_minutes` is set.
 //!
 //! A session is a candidate when its agent can resume a conversation, it is neither
-//! working nor waiting for the user, nobody has it open, and it has produced no output
-//! for the configured time. Before it is stopped it is checked for work that would die
+//! working nor waiting for the user, nobody has it open, and for the configured time
+//! the agent has done nothing and the user has neither opened it nor typed into it. Before it is stopped it is checked for work that would die
 //! with it: a job the agent scheduled inside the session, or a process it left running.
 //! When in doubt the session stays, and the card says why.
 
@@ -42,10 +42,29 @@ const HELPER_WINDOW_S: i64 = 120;
 /// A process younger than this is a passing command (a status line, a hook), not a job.
 const SETTLED_S: i64 = 60;
 
+/// When the user last had each card open or typed into it (ms). Kept in memory only:
+/// after a daemon restart the card's stored status times decide alone.
+#[derive(Default)]
+pub struct Touched(std::sync::Mutex<std::collections::HashMap<String, i64>>);
+
+impl Touched {
+    /// The user opened, closed or typed into the card's terminal.
+    pub fn touch(&self, card_id: &str) {
+        self.0.lock().unwrap().insert(card_id.to_string(), now_ms());
+    }
+
+    fn at(&self, card_id: &str) -> Option<i64> {
+        self.0.lock().unwrap().get(card_id).copied()
+    }
+}
+
 pub async fn run(st: Arc<State>) {
+    // The first look comes soon after the daemon starts: how long a session has been
+    // idle is stored with its card, so a restart does not start the wait again.
+    tokio::time::sleep(period().min(Duration::from_secs(60))).await;
     loop {
-        tokio::time::sleep(period()).await;
         check(&st).await;
+        tokio::time::sleep(period()).await;
     }
 }
 
@@ -58,9 +77,12 @@ fn emit(st: &State, card_id: &str) {
     }
 }
 
-/// When the session last did anything: a status change, an agent event, or output.
-fn idle_since(card: &Card, output_ms: Option<i64>) -> i64 {
-    card.status_since.max(card.last_activity_at.unwrap_or(0)).max(output_ms.unwrap_or(0))
+/// When the session was last used: the agent started or finished something, or the
+/// user had the card open or typed into it. Output alone does not count. A terminal
+/// repaints for reasons that are nobody's use of it (a resize, a redraw by the agent's
+/// interface), and that must not start the wait again.
+fn idle_since(card: &Card, touched: Option<i64>) -> i64 {
+    card.status_since.max(card.last_activity_at.unwrap_or(0)).max(touched.unwrap_or(0))
 }
 
 /// Whether the card's session may be stopped at all, whatever its idle time.
@@ -87,11 +109,10 @@ async fn check(st: &Arc<State>) {
         cards.iter().for_each(forget);
         return;
     }
-    let output = st.backend.activity_times().await;
     let now = now_ms();
     let mut due = Vec::new();
     for card in &cards {
-        if eligible(st, card) && now - idle_since(card, output.get(&card.id).copied()) >= minutes * minute_ms() {
+        if eligible(st, card) && now - idle_since(card, st.touched.at(&card.id)) >= minutes * minute_ms() {
             due.push(card.clone());
         } else {
             forget(card);
