@@ -264,6 +264,8 @@ impl State {
         notices.extend(self.notices.lock().unwrap().iter().cloned());
         muster_proto::DaemonStatus {
             version: env!("CARGO_PKG_VERSION").into(),
+            commit: Some(env!("MUSTER_BUILD_COMMIT").into()),
+            commit_date: Some(env!("MUSTER_BUILD_COMMIT_DATE").to_string()).filter(|d| !d.is_empty()),
             pid: std::process::id(),
             home: self.home.to_string_lossy().into_owned(),
             tmux_socket: self.backend.socket().to_string(),

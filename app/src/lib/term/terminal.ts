@@ -9,7 +9,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
-import { isNewlineChord } from "./keys";
+import { CTRL_ENTER, isCtrlEnter, isNewlineChord } from "./keys";
 import { isOpenChord, pathsForPaste, webUrl } from "./links";
 
 const DARK: ITheme = {
@@ -68,6 +68,11 @@ export interface TermCallbacks {
   onSize?: (cols: number, rows: number) => void;
   /** Open a web link the user Cmd+clicked. Already checked to be http(s). */
   openUrl?: (url: string) => void;
+  /**
+   * Send Ctrl+Enter in the extended key encoding. Only for programs known to read it:
+   * a plain shell would print it as text.
+   */
+  extendedCtrlEnter?: boolean;
   /** Paths of the files on the clipboard, when the host can tell. */
   clipboardFiles?: () => Promise<string[]>;
 }
@@ -184,6 +189,11 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
       // keydown must be refused too: xterm would otherwise send a plain Enter after
       // the newline, which submits the prompt.
       if (ev.type === "keydown") send("\x1b\r");
+      ev.preventDefault();
+      return false;
+    }
+    if (cb.extendedCtrlEnter && isCtrlEnter(ev)) {
+      if (ev.type === "keydown") send(CTRL_ENTER);
       ev.preventDefault();
       return false;
     }

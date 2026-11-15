@@ -4,12 +4,17 @@
   import Dialog from "./Dialog.svelte";
   import Select from "./Select.svelte";
   import { FONT_CHOICES, getTermPrefs, setTermPrefs } from "../term/prefs";
+  import type { AppInfo } from "../connection";
+  import { commitWhen, sameBuild } from "./about";
 
   const app = useApp();
   const s = $derived(app.settings);
   let notify = $state<boolean | null>(null);
   let notifyStatus = $state<string | null>(null);
   let island = $state<{ enabled: boolean; available: boolean } | null>(null);
+  let info = $state<AppInfo | null>(null);
+  const daemon = $derived(app.daemonStatus);
+  const same = $derived(sameBuild(info?.commit, daemon?.commit));
   let term = $state(getTermPrefs());
   function setTerm(p: Partial<typeof term>) {
     term = { ...term, ...p };
@@ -23,6 +28,7 @@
     app.platform.getNotify?.().then((v) => (notify = v)).catch(() => {});
     app.platform.notifyStatus?.().then((v) => (notifyStatus = v)).catch(() => {});
     app.platform.getIsland?.().then((v) => (island = v)).catch(() => {});
+    app.platform.appInfo?.().then((v) => (info = v)).catch(() => {});
   });
 
   async function setSilence(n: number) {
@@ -161,6 +167,38 @@
       </div>
     </section>
 
+    <section>
+      <div class="label">About</div>
+      <div class="grid about">
+        {#if info}
+          <span>App</span>
+          <span>
+            Muster{info.dev ? " Dev" : ""} · commit <code>{info.commit}</code>
+            {#if commitWhen(info.commitDate)}<small>{commitWhen(info.commitDate)}</small>{/if}
+          </span>
+        {/if}
+        <span>Daemon</span>
+        {#if daemon}
+          <span>
+            {#if daemon.commit}commit <code>{daemon.commit}</code>{:else}an older build that records no commit{/if}
+            {#if commitWhen(daemon.commitDate)}<small>{commitWhen(daemon.commitDate)}</small>{/if}
+          </span>
+          <span>Data</span>
+          <span><code>{daemon.home}</code></span>
+        {:else}
+          <span class="muted">Not connected.</span>
+        {/if}
+      </div>
+      {#if same === false || (info && daemon && !daemon.commit)}
+        <p class="warn">
+          The daemon is running a different build from the app, usually because the app was updated while the daemon kept running. Quit Muster, run
+          <code>pkill -x musterd</code> in a terminal, and open Muster again. Sessions keep running.
+        </p>
+      {:else if info?.commit.endsWith("+") || daemon?.commit?.endsWith("+")}
+        <small>A <code>+</code> after the commit means the build included changes that were not committed.</small>
+      {/if}
+    </section>
+
     <footer><button class="btn primary" onclick={() => (app.settingsOpen = false)}>Done</button></footer>
   </div>
 </Dialog>
@@ -207,6 +245,20 @@
     color: var(--s-needs);
     font-size: 12px;
     margin: 0;
+  }
+  .about span {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    min-width: 0;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 12px;
+    user-select: text;
+    -webkit-user-select: text;
+    word-break: break-all;
   }
   .grid {
     display: grid;

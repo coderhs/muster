@@ -4,6 +4,16 @@
 
 import type { Endpoint, ProtocolError } from "../protocol/client";
 
+/** What this copy of the app is. */
+export interface AppInfo {
+  version: string;
+  /** Short git commit, with "+" appended for a build with uncommitted changes. */
+  commit: string;
+  commitDate: string;
+  /** A development build (Muster Dev). */
+  dev: boolean;
+}
+
 export interface Platform {
   kind: "tauri" | "browser";
   /** Where to connect. Called before every connection attempt. */
@@ -16,6 +26,8 @@ export interface Platform {
   openUrl(url: string): Promise<void>;
   /** Paths of files on the clipboard (copied in the Finder), when the host can tell. */
   clipboardFiles?: () => Promise<string[]>;
+  /** Version and build commit of the desktop app. */
+  appInfo?: () => Promise<AppInfo>;
   /** Start the daemon on request (the desktop shell can; a browser cannot). */
   startDaemon?: () => Promise<string>;
   /** Desktop notifications for needs-you / done (posted by the shell, even with the window closed). */
