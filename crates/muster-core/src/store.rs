@@ -120,6 +120,12 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE cards ADD COLUMN model TEXT;
     "#,
+    // v8: stopping idle sessions
+    r#"
+    ALTER TABLE cards ADD COLUMN keep_running INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE cards ADD COLUMN idle_stopped_at INTEGER;
+    ALTER TABLE cards ADD COLUMN idle_kept TEXT;
+    "#,
 ];
 
 /// Comments kept per card; the oldest are dropped beyond this.
@@ -188,6 +194,7 @@ pub struct CardPatch {
     pub priority: Option<Option<Priority>>,
     pub due_at: Option<Option<i64>>,
     pub title_auto: Option<bool>,
+    pub keep_running: Option<bool>,
     /// Who makes the change; recorded when the notes change.
     pub editor: Option<Author>,
 }
@@ -202,7 +209,8 @@ const CARD_INSERT_COLS: &str = "id, project_id, column_id, rank, title, agent_id
 const CARD_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes, \
      priority, due_at, agent_session_id, status, status_since, turn_started_at, last_activity_at, \
      unread, created_at, updated_at, needs_you_reason, pending_approval, context, title_source, setup, restorable, \
-     (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at, model";
+     (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at, model, \
+     keep_running, idle_stopped_at, idle_kept";
 
 const COMMENT_COLS: &str =
     "id, card_id, author_kind, author_card_id, author_agent_id, author_card_title, text, created_at";
@@ -259,6 +267,9 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         notes_edited_by: r.get::<_, Option<String>>(27)?.and_then(|s| serde_json::from_str(&s).ok()),
         notes_edited_at: r.get(28)?,
         model: r.get(29)?,
+        keep_running: r.get::<_, i64>(30)? != 0,
+        idle_stopped_at: r.get(31)?,
+        idle_kept: r.get(32)?,
     })
 }
 
@@ -709,6 +720,9 @@ impl Store {
             notes_edited_by: None,
             notes_edited_at: None,
             model: None,
+            keep_running: false,
+            idle_stopped_at: None,
+            idle_kept: None,
         };
         self.conn
             .execute(
@@ -765,6 +779,18 @@ impl Store {
         }
         if let Some(d) = patch.due_at {
             c.due_at = d;
+        }
+        if let Some(k) = patch.keep_running {
+            c.keep_running = k;
+            // An exempt card is no longer "kept for a reason".
+            let kept = if k { None } else { c.idle_kept.clone() };
+            self.conn
+                .execute(
+                    "UPDATE cards SET keep_running = ?2, idle_kept = ?3 WHERE id = ?1",
+                    params![id, k as i64, kept],
+                )
+                .map_err(sql_err)?;
+            c.idle_kept = kept;
         }
         c.updated_at = now_ms();
         self.conn
@@ -1232,6 +1258,24 @@ impl Store {
             )
             .map_err(sql_err)?;
         Ok(())
+    }
+
+    /// Records that the daemon stopped the session for being idle, or (`None`) that
+    /// the session runs again.
+    pub fn set_idle_stopped(&mut self, id: &str, at: Option<i64>) -> Result<()> {
+        self.conn
+            .execute("UPDATE cards SET idle_stopped_at = ?2, idle_kept = NULL WHERE id = ?1", params![id, at])
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
+    /// Why an idle session was left running. Returns whether the stored value changed.
+    pub fn set_idle_kept(&mut self, id: &str, why: Option<&str>) -> Result<bool> {
+        let n = self
+            .conn
+            .execute("UPDATE cards SET idle_kept = ?2 WHERE id = ?1 AND idle_kept IS NOT ?2", params![id, why])
+            .map_err(sql_err)?;
+        Ok(n > 0)
     }
 
     pub fn set_model(&mut self, id: &str, model: Option<&str>) -> Result<()> {

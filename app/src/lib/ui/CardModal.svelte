@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSleeping } from "./idle";
   import Select from "./Select.svelte";
   import DatePicker from "./DatePicker.svelte";
   import { CATEGORY_COLOR, colorOr } from "./colors";
@@ -334,7 +335,7 @@
         {#if card.status === "needs_you" && card.needsYouReason}
           <span class="reason">{reasonLabel(card.needsYouReason, card.setup?.exitCode)}</span>
         {/if}
-        <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} source={cap.statusSource} />
+        <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} sleeping={isSleeping(card)} source={cap.statusSource} />
         <button
           class="icon-btn"
           class:hidden-side={app.cardSideCollapsed}
@@ -385,6 +386,8 @@
                 <p>This session was interrupted (the Mac restarted or tmux stopped). Restoring replays its scrollback and resumes the agent's conversation.</p>
               {:else if card.status === "draft"}
                 <p>This card is a draft. Starting it launches <b>{agent.label}</b>{card.prompt ? " with its prompt" : ""}.</p>
+              {:else if isSleeping(card)}
+                <p>Muster stopped this session after it sat idle. Resuming continues the conversation where it left off.</p>
               {:else}
                 <p>No session is running for this card.</p>
               {/if}
@@ -396,7 +399,8 @@
           {/if}
           {#if exitInfo}
             <div class="exit">
-              <Icon name="stop" size={12} /> Session ended{exitInfo.code != null ? ` (exit ${exitInfo.code})` : ""}.
+              <Icon name="stop" size={12} />
+              {#if isSleeping(card)}Stopped after sitting idle.{:else}Session ended{exitInfo.code != null ? ` (exit ${exitInfo.code})` : ""}.{/if}
               <button class="btn small" disabled={starting} onclick={start}>{canResume ? "Resume" : "Start again"}</button>
             </div>
           {/if}
@@ -508,6 +512,22 @@
           <section class="info">
             <div><span>Agent</span>{agent.label}</div>
             {#if card.model}<div><span>Model</span>{card.model}</div>{/if}
+            {#if cap.resume && card.agentId !== "shell" && (app.settings?.idleStopMinutes || card.keepRunning)}
+              <div>
+                <span>When idle</span>
+                <label class="keep" title="Muster stops sessions that sit idle (Settings → Daemon). Tick to exempt this card.">
+                  <input
+                    type="checkbox"
+                    checked={!!card.keepRunning}
+                    onchange={(e) => app.updateCard({ id: cardId, keepRunning: (e.currentTarget as HTMLInputElement).checked }).catch(() => {})}
+                  />
+                  Keep running
+                </label>
+              </div>
+              {#if card.idleKept && !card.keepRunning}
+                <div><span></span><small class="kept">Idle, but left running: {card.idleKept}.</small></div>
+              {/if}
+            {/if}
             {#if column}<div><span>Column</span>{column.title}</div>{/if}
             {#if card.branch}<div><span>Branch</span><code>{card.branch}</code></div>{/if}
             <div><span>Folder</span><code title={card.cwd}>{card.cwd}</code></div>
@@ -572,6 +592,14 @@
 {/if}
 
 <style>
+  .keep {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .kept {
+    color: var(--text-2);
+  }
   /* Heavier and brighter while the details column is hidden. */
   .icon-btn.hidden-side {
     color: var(--text);

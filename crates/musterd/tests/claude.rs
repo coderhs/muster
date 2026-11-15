@@ -723,7 +723,13 @@ async fn keep_awake_follows_running_cards_and_settings() {
     let s = c.call("settings.get", json!({})).await.unwrap();
     assert_eq!(
         s["settings"],
-        json!({"keepAwake": true, "autoRestore": false, "silenceSeconds": 5, "clipboardPassthrough": false})
+        json!({
+            "keepAwake": true,
+            "autoRestore": false,
+            "silenceSeconds": 5,
+            "clipboardPassthrough": false,
+            "idleStopMinutes": 0
+        })
     );
     assert!(!assertion_held(dpid));
     let (pid, cols) = setup_project(&mut c, &env).await;

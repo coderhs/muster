@@ -18,8 +18,9 @@
     status,
     since,
     settingUp = false,
+    sleeping = false,
     source = "hooks",
-  }: { status: CardStatus; since: number; settingUp?: boolean; source?: "hooks" | "log" | "activity" } = $props();
+  }: { status: CardStatus; since: number; settingUp?: boolean; sleeping?: boolean; source?: "hooks" | "log" | "activity" } = $props();
   const SOURCE_NOTE = {
     hooks: "",
     log: "Status from the agent's session log",
@@ -28,9 +29,13 @@
   const showTimer = $derived(status !== "draft" && since > 0);
 </script>
 
-<span class="badge s-{status}" class:setup={settingUp} title={SOURCE_NOTE[source] || undefined}>
+<span
+  class="badge s-{status}"
+  class:setup={settingUp}
+  title={sleeping ? "Stopped by Muster after sitting idle. Resume continues the conversation." : SOURCE_NOTE[source] || undefined}
+>
   <span class="dot"></span>
-  {settingUp ? "Setting up" : (STATUS_LABEL[status] ?? status)}
+  {settingUp ? "Setting up" : sleeping ? "Sleeping" : (STATUS_LABEL[status] ?? status)}
   {#if showTimer}<span class="for">for {shortDuration(clock.now - since)}</span>{/if}
 </span>
 

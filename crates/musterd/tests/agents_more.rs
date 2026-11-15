@@ -380,3 +380,77 @@ async fn cursor_status_from_its_hooks() {
     // Cursor never asks for approvals from the board.
     assert!(k.get("pendingApproval").is_none());
 }
+
+/// Runs the fake Cursor through one turn so the card is `done` with a conversation id.
+async fn finished_cursor_card(c: &mut Client, env: &Env, pid: &str, col: &str, tag: &str) -> String {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../muster-agents/tests/fixtures/cursor/events-interactive.jsonl");
+    let dir = env.root.join(format!("p-{tag}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let card = start(c, pid, col, "cursor").await;
+    let id = card["id"].as_str().unwrap().to_string();
+    c.attach(&id, 200, 30).await;
+    c.wait_output("FAKE-CURSOR --plugin-dir").await;
+    for (i, l) in std::fs::read_to_string(&fixture).unwrap().lines().take(8).enumerate() {
+        let v: Value = serde_json::from_str(l).unwrap();
+        let mut p = v["payload"].clone();
+        let o = p.as_object_mut().unwrap();
+        o.remove("transcript_path");
+        // Each card is its own conversation.
+        for key in ["conversation_id", "session_id"] {
+            if let Some(Value::String(s)) = o.get_mut(key) {
+                s.push_str(tag);
+            }
+        }
+        let f = dir.join(format!("c{i}.json"));
+        std::fs::write(&f, p.to_string()).unwrap();
+        let ev = v["event"].as_str().unwrap();
+        c.call("term.write", json!({"cardId": id, "data": format!("ev {ev} {}\r", f.display())})).await.unwrap();
+        c.wait_output(&format!("SENT[{ev}]")).await;
+    }
+    wait_card(c, &id, "done", |k| k["status"] == "done" && k["agentSessionId"].is_string()).await;
+    c.output.clear();
+    // An open card is never stopped.
+    c.call("session.detach", json!({"cardId": id})).await.unwrap();
+    id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn idle_sessions_are_stopped_and_can_be_resumed() {
+    let mut env = Env::new();
+    env.env.push(("MUSTER_HOOK_BIN".into(), hook_bin().to_string_lossy().into_owned()));
+    // Look every 300 ms; one "minute" of the setting lasts a second.
+    env.env.push(("MUSTER_IDLE_CHECK_MS".into(), "300".into()));
+    env.env.push(("MUSTER_IDLE_MINUTE_MS".into(), "1000".into()));
+    install(&env, "cursor-agent", FAKE_CURSOR);
+    let port = env.start_daemon();
+    let mut c = Client::connect(port, &env.home).await;
+    let (pid, col) = project(&mut c, &env).await;
+
+    let idle = finished_cursor_card(&mut c, &env, &pid, &col, "a").await;
+    let kept = finished_cursor_card(&mut c, &env, &pid, &col, "b").await;
+    let k = c.call("card.update", json!({"id": kept, "keepRunning": true})).await.unwrap();
+    assert_eq!(k["card"]["keepRunning"], true);
+
+    // Off by default: nothing happens however long the cards sit.
+    assert_eq!(c.call("settings.get", json!({})).await.unwrap()["settings"]["idleStopMinutes"], 0);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(card_now(&mut c, &idle).await["hasSession"], true);
+
+    c.call("settings.update", json!({"idleStopMinutes": 2})).await.unwrap();
+    let stopped = wait_card(&mut c, &idle, "stopped", |k| k["status"] == "exited" && k["idleStoppedAt"].is_i64()).await;
+    assert_eq!(stopped["hasSession"], false);
+    assert!(stopped["agentSessionId"].is_string(), "the conversation is kept for resuming: {stopped}");
+    assert!(stopped.get("restorable").is_none_or(|r| r == false), "{stopped}");
+    assert!(!env.tmux_sessions().contains(&format!("m-{idle}")));
+    // The exempt card is still running.
+    let k = card_now(&mut c, &kept).await;
+    assert_eq!((k["hasSession"].clone(), k["status"].clone()), (json!(true), json!("done")), "{k}");
+    assert!(k.get("idleStoppedAt").is_none());
+
+    // Resuming clears the mark.
+    c.call("settings.update", json!({"idleStopMinutes": 0})).await.unwrap();
+    let again = c.call("card.start", json!({"id": idle})).await.unwrap();
+    assert_eq!(again["card"]["hasSession"], true);
+    assert!(again["card"].get("idleStoppedAt").is_none(), "{again}");
+}

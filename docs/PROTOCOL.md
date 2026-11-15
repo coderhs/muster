@@ -558,3 +558,36 @@ Card    {..., commentCount, notesEditedBy?: Author, notesEditedAt?}
 - `context.read` accepts `kind: "comments"`: the card's comments as text, each headed by
   its time (UTC) and author, e.g. `agent claude (card ab12cd "Fix login")` or `user`.
   The summary kind mentions the comment count.
+
+## Round 8: stopping idle sessions
+
+`Settings` gains `idleStopMinutes` (default `0`, never; at most 525600), set with
+`settings.update`. `Card` gains `keepRunning?: bool`, `idleStoppedAt?: ms` and
+`idleKept?: string`; `card.update` accepts `keepRunning`.
+
+With a non-zero setting the daemon looks at the sessions every five minutes and stops
+one when all of this holds for the whole period:
+
+- its agent can resume a conversation and the card has an `agentSessionId` (shell cards
+  are never stopped);
+- the card is `idle` or `done`: not working, not waiting for the user;
+- no client is attached to it;
+- it has produced no output and no agent event;
+- the card's `keepRunning` is not set.
+
+Before stopping, the daemon checks for work that would end with the session. If it finds
+any, or cannot tell, the session stays and `idleKept` says why in words for the user:
+
+- a process started more than two minutes after the session itself and still running
+  (processes an agent starts with itself, such as MCP servers, do not count);
+- for Claude Code, a job made with `CronCreate` and not deleted or expired, or a
+  `ScheduleWakeup` that has not come due. These live only in the session's memory, so
+  they are read from the transcript, counting only calls made since the running
+  process started;
+- for Claude Code, a non-empty `.claude/scheduled_tasks.json` in the card's folder when
+  no other live Claude session shares that folder.
+
+A stopped session is asked to quit (Ctrl+C twice) and then removed. The card becomes
+`exited` with `idleStoppedAt` set, keeps its `agentSessionId`, and is not `restorable`;
+`card.start` resumes the conversation and clears `idleStoppedAt`. `idleKept` is cleared
+when the card is no longer idle, when it is stopped, and when `keepRunning` is set.

@@ -3,6 +3,7 @@
 mod accounts;
 mod agents;
 mod context;
+mod idle;
 mod launchd;
 mod scrollback;
 mod server;
@@ -220,6 +221,7 @@ fn run() -> Result<(), String> {
         tokio::spawn(state.clone().output_activity(output_rx));
         tokio::spawn(stats::run(state.clone()));
         tokio::spawn(scrollback::run(state.clone()));
+        tokio::spawn(idle::run(state.clone()));
         match cli_path().map(|cli| context::write_guidance(&home, &cli)) {
             Some(Ok(g)) => state.agents.set_guidance(g),
             Some(Err(e)) => log!("writing agent instructions: {e}"),

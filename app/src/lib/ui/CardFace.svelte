@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSleeping } from "./idle";
   import type { Agent, Card } from "../protocol/types";
   import AgentMark from "./AgentMark.svelte";
   import StatusBadge from "./StatusBadge.svelte";
@@ -71,7 +72,7 @@
     <ApprovalBar {card} compact />
   {/if}
   <div class="meta">
-    <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} source={caps(agent).statusSource} />
+    <StatusBadge status={card.status} since={card.statusSince} settingUp={card.setup?.state === "running"} sleeping={isSleeping(card)} source={caps(agent).statusSource} />
     {#if card.model}<span class="chip model" title="Model: {card.model}">{card.model}</span>{/if}
     {#if card.context && caps(agent).context}<ContextMeter context={card.context} />{/if}
     {#if card.priority}
