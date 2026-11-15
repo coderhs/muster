@@ -329,7 +329,13 @@ impl<B: SessionBackend> Hub<B> {
     pub async fn write(&self, card_id: &str, data: &[u8]) -> Result<()> {
         let pty = self.sessions.lock().unwrap().get(card_id).map(|a| a.pty.clone());
         match pty {
-            Some(pty) => pty.write_all(data).await.map_err(|e| err(ErrorCode::Unavailable, format!("write: {e}"))),
+            // The client may have just died (its replacement comes up a moment later):
+            // the session is still there, so the input goes in through the backend
+            // instead of being lost.
+            Some(pty) => match pty.write_all(data).await {
+                Ok(()) => Ok(()),
+                Err(_) => self.backend.send_input(card_id, data).await,
+            },
             None => self.backend.send_input(card_id, data).await,
         }
     }
