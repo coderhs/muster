@@ -69,6 +69,20 @@ fn parent(pid: i32) -> Option<i32> {
     (r == size).then_some(info.pbi_ppid as i32)
 }
 
+/// When a process started (seconds since the epoch) and its short name.
+pub fn started(pid: i32) -> Option<(i64, String)> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let r = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
+    };
+    if r != size {
+        return None;
+    }
+    let name: Vec<u8> = info.pbi_comm.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    Some((info.pbi_start_tvsec as i64, String::from_utf8_lossy(&name).into_owned()))
+}
+
 /// A snapshot of the process table: parent and session of each pid.
 pub struct ProcTable {
     parent: HashMap<i32, i32>,

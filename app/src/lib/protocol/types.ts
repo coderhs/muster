@@ -69,6 +69,12 @@ export interface Card {
   notesEditedAt?: number | null;
   /** Short name of the model the agent last reported ("Opus 5.5", "gpt-5.5"). */
   model?: string | null;
+  /** The user exempted this card from being stopped when idle. */
+  keepRunning?: boolean;
+  /** When Muster stopped the session for being idle; cleared when it starts again. */
+  idleStoppedAt?: number | null;
+  /** Why an idle session was left running at the last check ("has a scheduled job"). */
+  idleKept?: string | null;
 }
 
 /** Who wrote a comment or edited notes. Set by the daemon, never by the client. */
@@ -109,6 +115,8 @@ export interface Settings {
   silenceSeconds?: number;
   /** Whether programs in cards may set the Mac clipboard (OSC 52). */
   clipboardPassthrough?: boolean;
+  /** Stop a session idle this many minutes, leaving a card to resume. 0 = never. */
+  idleStopMinutes?: number;
 }
 
 export interface ProcStats {
@@ -296,6 +304,7 @@ export interface Methods {
       priority?: Priority | null;
       dueAt?: number | null;
       titleAuto?: boolean;
+      keepRunning?: boolean;
     },
     { card: Card },
   ];

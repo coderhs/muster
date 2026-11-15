@@ -319,6 +319,17 @@ pub struct Card {
     /// Absent until the agent reports one; kept after the session ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The user exempted this card from being stopped when idle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_running: bool,
+    /// When the daemon stopped the session for being idle (ms). Cleared when the
+    /// session starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_stopped_at: Option<i64>,
+    /// Why an idle session was left running at the last check, in words for the user
+    /// ("has a scheduled job"). Absent when it is not idle or nothing holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_kept: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -400,6 +411,10 @@ pub struct Settings {
     /// default: any agent output could otherwise replace the clipboard.
     #[serde(default)]
     pub clipboard_passthrough: bool,
+    /// Stop a session that has been idle this many minutes (its card can be resumed).
+    /// 0, the default, never stops one.
+    #[serde(default)]
+    pub idle_stop_minutes: u32,
 }
 
 fn default_silence() -> u64 {
@@ -413,6 +428,7 @@ impl Default for Settings {
             auto_restore: false,
             silence_seconds: default_silence(),
             clipboard_passthrough: false,
+            idle_stop_minutes: 0,
         }
     }
 }
@@ -847,6 +863,9 @@ pub struct CardUpdateParams {
     /// `true` hands the title back to the daemon. Setting `title` makes it `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_auto: Option<bool>,
+    /// Exempt the card from being stopped when idle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_running: Option<bool>,
     /// The card whose agent makes the change (recorded as the notes' editor). Set by
     /// the daemon for a card token; absent for a person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1067,6 +1086,8 @@ pub struct SettingsUpdateParams {
     pub silence_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clipboard_passthrough: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_stop_minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1559,6 +1580,9 @@ mod tests {
             notes_edited_by: None,
             notes_edited_at: None,
             model: None,
+            keep_running: false,
+            idle_stopped_at: None,
+            idle_kept: None,
         };
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(v["status"], "needs_you");

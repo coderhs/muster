@@ -435,6 +435,7 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                     priority: p.priority,
                     due_at: p.due_at,
                     title_auto: p.title_auto,
+                    keep_running: p.keep_running,
                     editor: Some(editor),
                 },
             )?;
@@ -605,6 +606,13 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             if let Some(v) = p.clipboard_passthrough {
                 s.clipboard_passthrough = v;
                 st.backend.set_clipboard(v).await;
+            }
+            if let Some(v) = p.idle_stop_minutes {
+                // Up to a year; 0 switches it off.
+                if v > 525_600 {
+                    return Err(invalid("idleStopMinutes must be at most 525600"));
+                }
+                s.idle_stop_minutes = v;
             }
             if let Some(v) = p.silence_seconds {
                 if !(1..=600).contains(&v) {
@@ -860,6 +868,9 @@ pub(crate) async fn start_card(st: &Arc<State>, card: Card) -> Result<Card> {
     );
     if card.restorable {
         st.store.lock().unwrap().set_restorable(&card.id, false)?;
+    }
+    if card.idle_stopped_at.is_some() || card.idle_kept.is_some() {
+        st.store.lock().unwrap().set_idle_stopped(&card.id, None)?;
     }
     let card = st.store.lock().unwrap().set_status(&card.id, CardStatus::Running)?;
     if setup.is_some() {

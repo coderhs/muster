@@ -6,6 +6,7 @@
   import { FONT_CHOICES, getTermPrefs, setTermPrefs } from "../term/prefs";
   import type { AppInfo } from "../connection";
   import { commitWhen, sameBuild } from "./about";
+  import { idleChoices } from "./idle";
 
   const app = useApp();
   const s = $derived(app.settings);
@@ -43,6 +44,15 @@
   async function setDaemon(k: "keepAwake" | "autoRestore" | "clipboardPassthrough", v: boolean) {
     try {
       const { settings } = await app.call("settings.update", { [k]: v });
+      app.settings = settings;
+    } catch {
+      /* toast shown */
+    }
+  }
+
+  async function setIdleStop(minutes: number) {
+    try {
+      const { settings } = await app.call("settings.update", { idleStopMinutes: minutes });
       app.settings = settings;
     } catch {
       /* toast shown */
@@ -89,6 +99,28 @@
               <small>Lets terminal programs (editors, agents' copy commands) set the clipboard. Off by default: anything running in a card could otherwise replace what you copied.</small>
             </span>
           </label>
+        {/if}
+        {#if s.idleStopMinutes != null}
+          <div class="grid">
+            <span>Stop idle sessions</span>
+            <div class="stepper">
+              <Select
+                label="Stop sessions that have been idle for"
+                value={String(s.idleStopMinutes)}
+                options={idleChoices(s.idleStopMinutes)}
+                onchange={(v) => setIdleStop(Number(v))}
+              />
+              <small>
+                {#if s.idleStopMinutes}after sitting idle that long. The card stays and can be resumed.{:else}Idle sessions keep running.{/if}
+              </small>
+            </div>
+          </div>
+          {#if s.idleStopMinutes}
+            <small>
+              A session is left running while it is working or waiting for you, while its card is open, when it has scheduled a job or a
+              wake-up, when a command it started is still running, or when its card is set to keep running. Shell cards are never stopped.
+            </small>
+          {/if}
         {/if}
         {#if s.silenceSeconds != null}
           <div class="grid">

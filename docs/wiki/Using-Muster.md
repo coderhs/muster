@@ -106,4 +106,25 @@ Also shown:
 - Terminal font, weight, size and line height.
 - Whether programs in cards may copy to the Mac clipboard (off by default).
 - Quiet time before a hook-less agent is treated as waiting.
+- Stopping sessions that have been idle (off by default; see below).
 - Per project: name, colour, worktree setup script.
+
+## Stopping idle sessions
+
+An agent that sits unused still holds memory. Settings → Daemon → "Stop idle sessions"
+ends a session that has been idle for the time you choose (off by default). The card
+stays on the board, marked Sleeping; open it and press Resume to continue the same
+conversation.
+
+A session is left running while any of these is true:
+
+- the agent is working, or the card is waiting for you;
+- the card is open in the window;
+- it has printed something or you have typed into it within the chosen time;
+- the agent has scheduled a job or a wake-up inside the session (Claude Code's
+  scheduled prompts and loops), or a command it started is still running;
+- you ticked "Keep running" for the card, in its details.
+
+When an idle session is left running, the card's details say why. Shell cards are never
+stopped, because a shell cannot be resumed. Jobs in the Mac's own crontab or launchd do
+not depend on a session and are not affected.

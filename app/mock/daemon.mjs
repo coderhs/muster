@@ -367,7 +367,7 @@ function setStatus(card, status, unread) {
 // ---------- phase 4/5: links, messages, stats, settings ----------
 const links = new Set(); // "a|b", a < b
 const linkKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-let settings = { keepAwake: true, autoRestore: false, silenceSeconds: 5 };
+let settings = { keepAwake: true, autoRestore: false, silenceSeconds: 5, idleStopMinutes: 0 };
 let msgIds = 0;
 const comments = new Map(); // card id -> Comment[]
 let commentIds = 0;
@@ -693,7 +693,11 @@ const handlers = {
   },
   "daemon.status": () => daemonStatus(),
   "settings.get": () => ({ settings }),
-  "settings.update": ({ keepAwake, autoRestore, silenceSeconds }) => {
+  "settings.update": ({ keepAwake, autoRestore, silenceSeconds, idleStopMinutes }) => {
+    if (idleStopMinutes !== undefined) {
+      need(Number.isInteger(idleStopMinutes) && idleStopMinutes >= 0 && idleStopMinutes <= 525600, "invalid", "idleStopMinutes must be 0..525600");
+      settings = { ...settings, idleStopMinutes };
+    }
     if (typeof keepAwake === "boolean") settings = { ...settings, keepAwake };
     if (typeof autoRestore === "boolean") settings = { ...settings, autoRestore };
     if (silenceSeconds !== undefined) {
@@ -877,6 +881,7 @@ const handlers = {
     }
     if (params.title !== undefined) card.titleAuto = false;
     if (params.titleAuto === true) card.titleAuto = true;
+    if (typeof params.keepRunning === "boolean") card.keepRunning = params.keepRunning;
     card.updatedAt = now();
     cardEvent(card);
     return { card };
