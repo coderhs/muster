@@ -908,7 +908,7 @@ async fn context_links_messages_and_handoff() {
     assert!(cli(&env, me, &["card", "move", "--me", "Done"]).0);
     let k = card_of(&mut c, &pid, &a_id).await;
     assert_eq!(k["notes"], "first\nsecond");
-    assert_eq!(k["columnId"], cols[2].as_str());
+    assert_eq!(k["columnId"], cols[3].as_str());
 
     // The CLI from inside A's own session (MUSTER_HOME, MUSTER_CARD_ID, MUSTER_CLI set).
     c.attach(&a_id, 120, 30).await;
@@ -948,7 +948,7 @@ async fn context_links_messages_and_handoff() {
     // Handoff: a new linked card, told how to read A's context.
     let h = c.call("card.handoff", json!({"id": a_id})).await.unwrap()["card"].clone();
     let h_id = h["id"].as_str().unwrap().to_string();
-    assert_eq!(h["columnId"], cols[2].as_str());
+    assert_eq!(h["columnId"], cols[3].as_str());
     assert_eq!(h["cwd"], a["cwd"]);
     assert_eq!(h["status"], "running");
     assert!(h["prompt"].as_str().unwrap().contains(&format!("muster context read {a_id}")));

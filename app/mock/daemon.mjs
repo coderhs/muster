@@ -78,6 +78,7 @@ const daemonStatus = () => ({ version: VERSION, commit: "mock00000", commitDate:
 const DEFAULT_COLUMNS = [
   ["To Do", "#8e8e93", "unstarted"],
   ["In Progress", "#0a84ff", "started"],
+  ["Review", "#bf5af2", "started"],
   ["Done", "#30d158", "done"],
 ];
 
@@ -95,6 +96,34 @@ function addProject(path, name, color) {
     columns.set(col.id, col);
   });
   return p;
+}
+
+// What the Docs tab shows: the first project has instruction files and documents, the
+// others only a README.
+const MOCK_DOCS = {
+  "CLAUDE.md": "# Muster\n\n## Commands\n\n- Build: `cargo build`\n- Test: `cargo test` and `npm test` in `app/`\n\n## Rules\n\n- Services run in Docker, never on the host.\n- [x] Keep the app light\n- [ ] No new dependencies without asking\n",
+  "AGENTS.md": "# Agents\n\nRun `cargo test` before finishing. See [the plan](docs/PLAN.md).\n",
+  "README.md": "# Muster\n\nA board where every card is an agent session. Start with [the plan](docs/PLAN.md#phases) or the [protocol](docs/PROTOCOL.md).\n\n```sh\nnpm run dev\n```\n\n> Sessions keep running while the window is closed.\n",
+  "docs/PLAN.md": "# Plan\n\nSee also <https://example.com>.\n\n## Phases\n\n1. Board\n2. Sessions\n   - attach\n   - restore\n3. Agents\n",
+  "docs/wiki/Home.md": "# Home\n\n- [Agents](Agents.md)\n- [Plan](../PLAN.md)\n",
+  "docs/wiki/Agents.md": "# Agents\n\nEach card runs one agent.\n",
+  "docs/wiki/guides/Setup.md": "# Setup\n\n1. Install\n2. Run\n",
+  "docs/PROTOCOL.md": "# Protocol\n\n| Method | Params | Result |\n|---|---|---|\n| `docs.list` | `{projectId}` | `{docs}` |\n| `docs.read` | `{projectId, path}` | `{path, content}` |\n",
+};
+
+const mockDocs = new Map();
+function docsOf(projectId) {
+  need(projects.get(projectId), "not_found", "project not found");
+  if (!mockDocs.has(projectId)) {
+    const names = projectId === [...projects.keys()][0] ? Object.keys(MOCK_DOCS) : ["README.md"];
+    mockDocs.set(projectId, new Map(names.map((path) => [path, { content: MOCK_DOCS[path], modifiedAt: now() - 3 * 3600_000 }])));
+  }
+  return mockDocs.get(projectId);
+}
+function docEntry(projectId, path) {
+  const d = docsOf(projectId).get(path);
+  const kind = path === "CLAUDE.md" ? "claude" : path === "AGENTS.md" ? "agents" : "doc";
+  return { path, kind, size: d.content.length, modifiedAt: d.modifiedAt };
 }
 
 const projColumns = (pid) => [...columns.values()].filter((c) => c.projectId === pid).sort((a, b) => a.position - b.position);
@@ -147,7 +176,7 @@ function makeCard({ projectId, columnId, title, agentId, cwd, prompt, branch }) 
 
 function seed() {
   const p = addProject("/Users/demo/code/muster", "muster", "#0a84ff");
-  const [todo, doing, done] = projColumns(p.id);
+  const [todo, doing, , done] = projColumns(p.id);
   const t = now();
   const mk = (col, title, agentId, extra = {}) => Object.assign(makeCard({ projectId: p.id, columnId: col.id, title, agentId }), extra);
   mk(todo, "Write release notes for 0.2", "claude", { priority: "low" });
@@ -670,6 +699,24 @@ const handlers = {
     projects.delete(pid);
     broadcast("project.changed", { removedId: pid });
     return {};
+  },
+  "docs.list": ({ projectId }) => ({ docs: [...docsOf(projectId).keys()].map((path) => docEntry(projectId, path)) }),
+  "docs.read": ({ projectId, path }) => {
+    const d = docsOf(projectId).get(path);
+    need(d, "not_found", `document ${path} not found`);
+    return { path, content: d.content, modifiedAt: d.modifiedAt };
+  },
+  "docs.write": ({ projectId, path, content, create, expectedModifiedAt }) => {
+    const files = docsOf(projectId);
+    need(/\.(md|markdown)$/i.test(path) && !path.split("/").some((p) => !p || p.startsWith(".")), "invalid", `${path}: documents are Markdown files at the top of the project or under docs/`);
+    const d = files.get(path);
+    if (create) need(!d, "conflict", `${path} already exists`);
+    else {
+      need(d, "not_found", `document ${path} not found`);
+      need(expectedModifiedAt === undefined || expectedModifiedAt === d.modifiedAt, "conflict", `${path} was changed on disk after it was opened; refresh to see the new text`);
+    }
+    files.set(path, { content, modifiedAt: now() });
+    return { doc: docEntry(projectId, path) };
   },
   "board.get": ({ projectId }) => {
     const p = projects.get(projectId);

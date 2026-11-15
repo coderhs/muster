@@ -63,7 +63,7 @@ Desktop first; mobile starts only after phase 7.
 
 - `projects(id, name, path, color, position, created_at)`
 - `columns(id, project_id, title, color, category, position)` — category:
-  `unstarted | started | done | closed`. New projects get To Do / In Progress / Done.
+  `unstarted | started | done | closed`. New projects get To Do / In Progress / Review / Done.
 - `cards(id, project_id, column_id, rank, title, agent_id, cwd, branch, prompt, notes,
   priority, due_at, agent_session_id, status, status_since, turn_started_at,
   last_activity_at, unread, created_at, updated_at)`

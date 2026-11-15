@@ -778,6 +778,85 @@ pub struct BoardResult {
     pub links: Vec<Link>,
 }
 
+/// What a file in a project's documentation is.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum DocKind {
+    /// `CLAUDE.md`: instructions Claude Code reads.
+    Claude,
+    /// `AGENTS.md`: instructions other agents read.
+    Agents,
+    /// Any other Markdown file.
+    Doc,
+}
+
+/// A Markdown file of a project.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocEntry {
+    /// Relative to the project's folder, with `/` separators.
+    pub path: String,
+    pub kind: DocKind,
+    pub size: u64,
+    /// Milliseconds since the epoch.
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsListParams {
+    pub project_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsListResult {
+    pub docs: Vec<DocEntry>,
+    /// There were more files than the daemon lists.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsReadParams {
+    pub project_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsReadResult {
+    pub path: String,
+    pub content: String,
+    /// When the file was last changed, to hand back with `docs.write`.
+    pub modified_at: i64,
+    /// The file is longer than the daemon returns.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsWriteParams {
+    pub project_id: String,
+    pub path: String,
+    pub content: String,
+    /// Make a new file; refused when one exists.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub create: bool,
+    /// The `modifiedAt` the text was read with; the save is refused when the file has
+    /// changed since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_modified_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocsWriteResult {
+    pub doc: DocEntry,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnCreateParams {
@@ -1238,6 +1317,9 @@ pub enum Method {
     CommentList(CardIdParams),
     CommentAdd(CommentAddParams),
     CommentDelete(IdParams),
+    DocsList(DocsListParams),
+    DocsRead(DocsReadParams),
+    DocsWrite(DocsWriteParams),
 }
 
 macro_rules! methods {
@@ -1313,6 +1395,9 @@ methods! {
     CommentList => "comment.list",
     CommentAdd => "comment.add",
     CommentDelete => "comment.delete",
+    DocsList => "docs.list",
+    DocsRead => "docs.read",
+    DocsWrite => "docs.write",
 }
 
 impl Method {

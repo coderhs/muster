@@ -38,6 +38,10 @@ export interface Toast {
   kind: "error" | "info";
 }
 
+/** The tabs of the main window. The tracker covers all projects; the others one. */
+export const VIEWS = ["board", "tracker", "docs"] as const;
+export type View = (typeof VIEWS)[number];
+
 const PROJECT_KEY = "muster.project";
 const VIEW_KEY = "muster.view";
 const SIDEBAR_KEY = "muster.sidebar.collapsed";
@@ -97,7 +101,7 @@ export class AppState {
   cardMenu = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);
   /** A card picker for linking, opened from a card. */
   linking = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);
-  view = $state<"board" | "tracker">(recall(VIEW_KEY) === "tracker" ? "tracker" : "board");
+  view = $state<View>(VIEWS.find((v) => v === recall(VIEW_KEY)) ?? "board");
   /** The projects sidebar is hidden (wide windows only; narrow ones use the drawer). */
   sidebarCollapsed = $state(recall(SIDEBAR_KEY) === "1");
   /** The details column of an open card is hidden, leaving the terminal the full width. */
@@ -255,7 +259,7 @@ export class AppState {
     remember(CARD_SIDE_KEY, this.cardSideCollapsed ? "1" : null);
   }
 
-  setView(v: "board" | "tracker") {
+  setView(v: View) {
     this.view = v;
     remember(VIEW_KEY, v);
   }
