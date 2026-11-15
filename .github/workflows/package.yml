@@ -1,0 +1,26 @@
+name: Package
+
+# Builds the shareable Muster.app zip (scripts/package.sh) on a clean runner.
+# Run it from the Actions tab ("Run workflow"), choosing the branch or tag to build.
+# The zip is attached to the run as an artifact.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    # macos-latest is Apple silicon, which package.sh requires.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise exec -- npm ci
+        working-directory: app
+      # package.sh moves its leftovers to the Trash, which a fresh runner may not have.
+      - run: mkdir -p ~/.Trash
+      - run: scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: muster-macos-arm64
+          path: target/package/*.zip
+          if-no-files-found: error
