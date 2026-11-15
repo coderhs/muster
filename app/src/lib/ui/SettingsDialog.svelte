@@ -3,6 +3,7 @@
   import { useApp } from "../state/context";
   import Dialog from "./Dialog.svelte";
   import Select from "./Select.svelte";
+  import RemoteAccess from "./RemoteAccess.svelte";
   import { FONT_CHOICES, getTermPrefs, setTermPrefs } from "../term/prefs";
   import type { AppInfo } from "../connection";
   import { commitWhen, sameBuild } from "./about";
@@ -171,6 +172,10 @@
         {/if}
       {/if}
     </section>
+
+    {#if app.platform.kind === "tauri"}
+      <RemoteAccess />
+    {/if}
 
     <section>
       <div class="label">Terminal</div>

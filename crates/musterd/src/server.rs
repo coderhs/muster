@@ -43,7 +43,14 @@ pub async fn serve(state: Arc<State>, listener: TcpListener) {
         let _ = stream.set_nodelay(true);
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = connection(state, stream).await {
+            let mut cfg = WebSocketConfig::default();
+            cfg.max_message_size = Some(16 << 20);
+            cfg.max_frame_size = Some(16 << 20);
+            let ws = match tokio_tungstenite::accept_hdr_async_with_config(stream, check_path, Some(cfg)).await {
+                Ok(ws) => ws,
+                Err(e) => return log!("connection: {e}"),
+            };
+            if let Err(e) = connection(state, ws, Listener::Local).await {
                 log!("connection: {e}");
             }
         });
@@ -102,6 +109,18 @@ enum Role {
     /// id and the token's hash, re-checked on every call so a revoked token stops
     /// working on connections opened before the revocation.
     Card(String, String),
+    /// A paired device over remote access: device id and token hash, re-checked on
+    /// every call like a card's.
+    Device(String, String),
+}
+
+/// Which listener a connection came in on.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Listener {
+    /// 127.0.0.1 on the daemon's own port: the app and the CLI.
+    Local,
+    /// The remote-access port, behind `tailscale serve`: paired devices only.
+    Remote,
 }
 
 struct Ctx {
@@ -109,15 +128,14 @@ struct Ctx {
     conn_id: u64,
     conn: Conn,
     role: Role,
+    listener: Listener,
 }
 
-async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result<(), String> {
-    let mut cfg = WebSocketConfig::default();
-    cfg.max_message_size = Some(16 << 20);
-    cfg.max_frame_size = Some(16 << 20);
-    let ws = tokio_tungstenite::accept_hdr_async_with_config(stream, check_path, Some(cfg))
-        .await
-        .map_err(|e| e.to_string())?;
+pub async fn connection(
+    state: Arc<State>,
+    ws: tokio_tungstenite::WebSocketStream<TcpStream>,
+    listener: Listener,
+) -> std::result::Result<(), String> {
     let (mut sink, mut source) = ws.split();
     let (tx, mut rx) = mpsc::channel::<Message>(OUTBOUND_QUEUE);
     let kill = Arc::new(Notify::new());
@@ -130,7 +148,8 @@ async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result
         }
         let _ = sink.close().await;
     });
-    let mut ctx = Ctx { conn_id: state.next_conn_id(), state, conn: Conn { tx, kill: kill.clone() }, role: Role::None };
+    let mut ctx =
+        Ctx { conn_id: state.next_conn_id(), state, conn: Conn { tx, kill: kill.clone() }, role: Role::None, listener };
     let period =
         Duration::from_millis(std::env::var("MUSTER_PING_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(30_000));
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
@@ -141,7 +160,12 @@ async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result
         let msg = tokio::select! {
             m = source.next() => m,
             _ = kill.notified() => {
-                log!("closing connection {}: client too slow", ctx.conn_id);
+                let why = match &ctx.role {
+                    Role::Device(d, h) if !crate::remote::device_valid(&ctx.state, d, h) => "device unpaired",
+                    Role::Device(..) if !crate::remote::enabled(&ctx.state) => "remote access turned off",
+                    _ => "client too slow",
+                };
+                log!("closing connection {}: {why}", ctx.conn_id);
                 break;
             }
             _ = heartbeat.tick() => {
@@ -182,6 +206,15 @@ async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result
                     Ok(Restricted::Done(v)) => Ok(Reply::Value(v)),
                     Err(e) => Err(e),
                 },
+                Role::Device(dev, hash) => {
+                    if !crate::remote::device_valid(&ctx.state, &dev, &hash) {
+                        Err(err(ErrorCode::Unauthorized, "this device is no longer paired"))
+                    } else if matches!(m, Method::RemoteSet(_) | Method::RemotePair(_) | Method::RemoteRevoke(_)) {
+                        Err(err(ErrorCode::Unauthorized, "remote access is managed on the Mac"))
+                    } else {
+                        handle(&mut ctx, id, m).await
+                    }
+                }
                 _ => handle(&mut ctx, id, m).await,
             },
             Err(e) => Err(e),
@@ -202,6 +235,7 @@ async fn connection(state: Arc<State>, stream: TcpStream) -> std::result::Result
     }
 
     ctx.state.clients.remove(ctx.conn_id);
+    ctx.state.remote.unregister_conn(ctx.conn_id);
     let attached = ctx.state.hub.cards_of(ctx.conn_id);
     ctx.state.hub.detach_all(ctx.conn_id);
     ctx.state.agents.chat_unsubscribe_all(ctx.conn_id);
@@ -230,14 +264,21 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
         Method::Hello(p) => {
             // A valid token always gets in: the lockout below only slows down guessing,
             // so nobody can lock the app out by sending bad tokens.
-            let role = if constant_time_eq(p.token.as_bytes(), st.token.as_bytes()) {
-                Role::Master
-            } else {
-                let hash = hex(&sha256(p.token.as_bytes()));
-                let card = st.store.lock().unwrap().card_for_token_hash(&hash)?;
-                match card {
-                    Some(card) if !p.token.is_empty() => Role::Card(card, hash),
-                    _ => {
+            // The remote listener takes device tokens only; the master and card tokens
+            // never work from another device.
+            let found = match ctx.listener {
+                Listener::Remote => crate::remote::device_for_token(&st, &p.token).map(|(d, h)| Role::Device(d, h)),
+                Listener::Local if constant_time_eq(p.token.as_bytes(), st.token.as_bytes()) => Some(Role::Master),
+                Listener::Local => {
+                    let hash = hex(&sha256(p.token.as_bytes()));
+                    let card = st.store.lock().unwrap().card_for_token_hash(&hash)?;
+                    card.filter(|_| !p.token.is_empty()).map(|c| Role::Card(c, hash))
+                }
+            };
+            let role = {
+                match found {
+                    Some(role) => role,
+                    None => {
                         let locked = st.hello_locked();
                         st.hello_failed();
                         if locked {
@@ -257,8 +298,14 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             }
             if ctx.role == Role::None {
                 // Card connections get replies only, not the board's event stream.
-                if role == Role::Master {
-                    st.clients.add(ctx.conn_id, ctx.conn.clone());
+                match &role {
+                    Role::Master => st.clients.add(ctx.conn_id, ctx.conn.clone()),
+                    Role::Device(dev, _) => {
+                        st.clients.add(ctx.conn_id, ctx.conn.clone());
+                        st.remote.register_conn(ctx.conn_id, dev, ctx.conn.clone());
+                        crate::remote::device_seen(&st, dev);
+                    }
+                    _ => {}
                 }
                 ctx.role = role;
             }
@@ -379,6 +426,11 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             };
             to_value(crate::summarize::start(&st, &p, claude)?)
         }
+
+        Method::RemoteStatus(_) => to_value(crate::remote::status(&st)),
+        Method::RemoteSet(p) => to_value(crate::remote::set_enabled(&st, p.enabled).await?),
+        Method::RemotePair(_) => to_value(crate::remote::pair(&st)?),
+        Method::RemoteRevoke(p) => to_value(crate::remote::revoke(&st, &p.id)?),
 
         Method::ColumnCreate(p) => {
             let column =

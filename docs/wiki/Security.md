@@ -13,6 +13,22 @@ web pages and the agents themselves from doing more than they should.
 - Wrong tokens are answered slowly, to make guessing pointless. A correct token is
   never delayed.
 
+## Remote access
+
+Off by default. When you turn it on in Settings, Muster asks Tailscale to serve a second,
+separate port on your tailnet over HTTPS (`https://<your Mac>.ts.net:8443`). Nothing is
+opened to the internet or to your local network.
+
+- Only devices you pair can connect. Pairing uses a one-time link (shown as a QR code)
+  that expires after 10 minutes.
+- Each device gets its own token. Unpairing it in Settings disconnects it at once.
+- The main token never works from another device, and device tokens do not work on the
+  Mac's own port.
+- A paired device can do what the app can, except turn remote access on or off and pair
+  or unpair devices.
+- Anyone holding a paired device can run commands on your Mac through its terminals.
+  Unpair a device you lose.
+
 ## What a card may do
 
 Each running card gets its own limited token (`MUSTER_CARD_TOKEN`). With it the

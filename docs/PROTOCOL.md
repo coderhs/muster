@@ -819,3 +819,49 @@ The texts are kept per card and range (and per project and range for the paragra
 the newest 12 ranges each, and go with their card or project.
 
 Both the method and the texts are for the user's client: a card's connection is refused.
+
+## Round 14: remote access
+
+Phones, tablets and other computers reach the daemon through `tailscale serve`. Code:
+`crates/musterd/src/remote.rs`.
+
+| Method | Params | Result |
+|---|---|---|
+| `remote.status` | `{}` | `RemoteStatus` |
+| `remote.set` | `{enabled}` | `RemoteStatus` |
+| `remote.pair` | `{}` | `{url, expiresAt}` |
+| `remote.revoke` | `{id}` | `RemoteStatus` |
+
+| Event | Payload |
+|---|---|
+| `remote.changed` | `RemoteStatus`, sent when it is switched, a device pairs or one is revoked |
+
+```
+RemoteStatus {enabled, port, httpsPort, url?, webUi, error?, devices: Device[],
+              tailscale: {found, running, dnsName?, https}}
+Device {id, name, createdAt, lastSeenAt?}
+```
+
+- **Switching on** starts a second listener on `127.0.0.1:<port>` (default 7318) and runs
+  `tailscale serve --bg --https=<httpsPort> http://127.0.0.1:<port>` (default 8443).
+  Devices open `url`, `https://<tailnet name>:<httpsPort>/`. A Tailscale problem (not
+  installed, logged out, HTTPS certificates off for the tailnet, Serve not enabled) does
+  not fail the call; it is reported in `error`. The setting survives restarts. Switching
+  off stops the listener, closes device connections and runs
+  `tailscale serve --https=<httpsPort> off`.
+- **The remote listener** serves the built front end (`Contents/Resources/web` in the app
+  bundle, `MUSTER_WEB_DIR`, or `app/dist` next to a development build) with `GET`,
+  `POST /pair`, and the WebSocket at `/ws`. A WebSocket upgrade and `/pair` need the
+  `Origin` to be exactly the tailnet page's origin. `hello` there accepts device tokens
+  only, never the master or a card token, and device tokens do not work on the local
+  port.
+- **Pairing.** `remote.pair` returns `<url>#pair=<code>`, valid for 10 minutes and for one
+  use. The page posts `{code, name}` to `/pair` and gets `{token, deviceId}`. The token
+  is 32 random bytes, stored hashed. Failed codes count toward the same lockout as bad
+  `hello` tokens.
+- **A device connection** may call everything the app can, except `remote.set`,
+  `remote.pair` and `remote.revoke` (`unauthorized`): remote access is managed on the
+  Mac. Its token is checked again on every call. `remote.revoke` closes the device's
+  open connections at once.
+- Only the user's own clients (master token) may call `remote.*`; card connections are
+  refused.

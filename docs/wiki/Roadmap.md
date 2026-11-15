@@ -12,17 +12,18 @@ The full plan with its reasoning is in [`docs/PLAN.md`](../PLAN.md).
 | 5 | Context sharing: links, reads, messages, handoff | done |
 | 6 | More agents: Codex, opencode, Cursor, Gemini, Antigravity | built; only Claude Code and Cursor run for real |
 | 7 | Hardening: daily use, memory budget, crash, reboot and upgrade paths | in progress |
-| 8 | Remote access through `tailscale serve`, pairing, device revocation | not started |
-| 9 | Home-screen web app for iPhone, ntfy alerts | not started |
-| 10 | Native iOS shell | optional |
+| 8 | Remote access through `tailscale serve`, pairing, device revocation | built: the full board in a tablet or computer browser ([plan](../REMOTE-ACCESS.md)) |
+| 9 | Web app polish: home-screen install, terminal key row, touch, phone layout | not started ([plan](../REMOTE-ACCESS.md)) |
+| 10 | Native apps: Android tablet, then iPhone with notifications and Live Activity | planned ([plan](../MOBILE-APPS.md)); iPhone push needs a paid Apple developer account |
 
 ## Decisions already made
 
 - Tauri 2 for the desktop app and, later, mobile.
 - Being light on memory and CPU is a priority.
 - Remote access uses the user's own Tailscale; Muster runs no service.
-- Mobile starts as a home-screen web app, so no paid Apple developer account is needed.
-- Alerts to the phone start with ntfy.
+- Remote access works in any browser on the tailnet first; it stays as the fallback once native apps exist.
+- Native mobile apps use Tauri 2 with native code only for notifications, Live Activities and background work.
+- The Mac daemon sends push messages itself (APNs for the iPhone); no hosted relay.
 
 ## Not planned
 

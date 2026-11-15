@@ -1465,6 +1465,70 @@ pub struct CommentListResult {
     pub comments: Vec<Comment>,
 }
 
+// ---------------------------------------------------------------------------
+// Remote access (devices reaching the daemon through `tailscale serve`)
+// ---------------------------------------------------------------------------
+
+/// A paired device: a phone, tablet or other computer that reaches the daemon over
+/// Tailscale with its own token.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscaleInfo {
+    /// The `tailscale` command was found.
+    pub found: bool,
+    /// Logged in and connected.
+    pub running: bool,
+    /// This Mac's MagicDNS name, without the trailing dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_name: Option<String>,
+    /// The tailnet can issue HTTPS certificates for this Mac.
+    pub https: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteStatus {
+    pub enabled: bool,
+    /// Loopback port of the remote listener (what `tailscale serve` proxies to).
+    pub port: u16,
+    /// Port devices use on the Mac's tailnet name.
+    pub https_port: u16,
+    /// The address devices open, once Tailscale serves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The built front end was found, so the daemon can serve it.
+    pub web_ui: bool,
+    pub tailscale: TailscaleInfo,
+    /// Why remote access is not working, when it is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub devices: Vec<Device>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSetParams {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePairResult {
+    /// Opened once on the new device; carries a one-time pairing code.
+    pub url: String,
+    pub expires_at: i64,
+}
+
 /// Every request a client can make, with typed parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Method {
@@ -1516,6 +1580,10 @@ pub enum Method {
     CardAiRename(IdParams),
     ProjectSummary(ProjectSummaryParams),
     ProjectSummarize(ProjectSummarizeParams),
+    RemoteStatus(Empty),
+    RemoteSet(RemoteSetParams),
+    RemotePair(Empty),
+    RemoteRevoke(IdParams),
 }
 
 macro_rules! methods {
@@ -1597,6 +1665,10 @@ methods! {
     CardAiRename => "card.aiRename",
     ProjectSummary => "project.summary",
     ProjectSummarize => "project.summarize",
+    RemoteStatus => "remote.status",
+    RemoteSet => "remote.set",
+    RemotePair => "remote.pair",
+    RemoteRevoke => "remote.revoke",
 }
 
 impl Method {
@@ -1711,6 +1783,7 @@ pub enum Event {
     StatusChanged(DaemonStatus),
     CommentChanged(CommentChanged),
     SummaryChanged(SummaryChanged),
+    RemoteChanged(RemoteStatus),
 }
 
 impl Event {
@@ -1729,6 +1802,7 @@ impl Event {
             Event::StatusChanged(_) => "daemon.status",
             Event::CommentChanged(_) => "comment.changed",
             Event::SummaryChanged(_) => "summary.changed",
+            Event::RemoteChanged(_) => "remote.changed",
         }
     }
 
@@ -1747,6 +1821,7 @@ impl Event {
             Event::StatusChanged(p) => serde_json::to_value(p),
             Event::CommentChanged(p) => serde_json::to_value(p),
             Event::SummaryChanged(p) => serde_json::to_value(p),
+            Event::RemoteChanged(p) => serde_json::to_value(p),
         }
         .expect("event serialises");
         EventFrame { t: FrameTag::Ev, m: self.name().to_string(), p }
@@ -1770,6 +1845,7 @@ impl Event {
             "daemon.status" => serde_json::from_value(p).map(Event::StatusChanged),
             "comment.changed" => serde_json::from_value(p).map(Event::CommentChanged),
             "summary.changed" => serde_json::from_value(p).map(Event::SummaryChanged),
+            "remote.changed" => serde_json::from_value(p).map(Event::RemoteChanged),
             _ => return None,
         })
     }

@@ -18,6 +18,7 @@ rusqlite.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "sync", "macros", "process", "signal", "time", "io-util"] }
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+httparse = "1"
 
 [dev-dependencies]
 tokio-tungstenite = { workspace = true, features = ["connect"] }

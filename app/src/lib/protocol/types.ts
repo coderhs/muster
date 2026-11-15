@@ -119,6 +119,28 @@ export interface Settings {
   idleStopMinutes?: number;
 }
 
+/** A phone, tablet or computer paired for remote access. */
+export interface Device {
+  id: Id;
+  name: string;
+  createdAt: number;
+  lastSeenAt?: number | null;
+}
+
+export interface RemoteStatus {
+  enabled: boolean;
+  port: number;
+  httpsPort: number;
+  /** The address devices open, once Tailscale serves it. */
+  url?: string | null;
+  /** The built web app was found next to the daemon. */
+  webUi: boolean;
+  tailscale: { found: boolean; running: boolean; dnsName?: string | null; https: boolean };
+  /** Why remote access is not working, while it is on. */
+  error?: string | null;
+  devices: Device[];
+}
+
 export interface ProcStats {
   memBytes: number;
   cpuPercent: number;
@@ -342,6 +364,10 @@ export interface Methods {
   "stats.unsubscribe": [Record<string, never>, Record<string, never>];
   "settings.get": [Record<string, never>, { settings: Settings }];
   "settings.update": [Partial<Settings>, { settings: Settings }];
+  "remote.status": [Record<string, never>, RemoteStatus];
+  "remote.set": [{ enabled: boolean }, RemoteStatus];
+  "remote.pair": [Record<string, never>, { url: string; expiresAt: number }];
+  "remote.revoke": [{ id: Id }, RemoteStatus];
   "link.add": [Link, Record<string, never>];
   "link.remove": [Link, Record<string, never>];
   "context.list": [{ cardId: Id }, { cards: Card[] }];
@@ -476,6 +502,7 @@ export interface Events {
   "usage.changed": { usage: Usage };
   "stats.changed": StatsSnapshot;
   "settings.changed": { settings: Settings };
+  "remote.changed": RemoteStatus;
   "link.changed": { link: Link; linked: boolean };
   "daemon.status": DaemonStatus;
   "comment.changed": { comment: Comment } | { removedId: Id; cardId: Id };
