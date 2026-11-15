@@ -147,11 +147,14 @@ A session is left running while any of these is true:
 
 - the agent is working, or the card is waiting for you;
 - the card is open in the window;
-- it has printed something or you have typed into it within the chosen time;
+- the agent did something, or you opened the card or typed into it, within the chosen
+  time. Output by itself does not count: a terminal can repaint without anyone using it;
 - the agent has scheduled a job or a wake-up inside the session (Claude Code's
   scheduled prompts and loops), or a command it started is still running;
 - you ticked "Keep running" for the card, in its details.
 
-When an idle session is left running, the card's details say why. Shell cards are never
+How long a session has been idle is stored with its card, so restarting Muster does not
+start the wait again; the first check runs about a minute after the daemon starts, then
+every five minutes. When an idle session is left running, the card's details say why. Shell cards are never
 stopped, because a shell cannot be resumed. Jobs in the Mac's own crontab or launchd do
 not depend on a session and are not affected.

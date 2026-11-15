@@ -565,14 +565,17 @@ Card    {..., commentCount, notesEditedBy?: Author, notesEditedAt?}
 `settings.update`. `Card` gains `keepRunning?: bool`, `idleStoppedAt?: ms` and
 `idleKept?: string`; `card.update` accepts `keepRunning`.
 
-With a non-zero setting the daemon looks at the sessions every five minutes and stops
+With a non-zero setting the daemon looks at the sessions a minute after it starts and
+then every five minutes, and stops
 one when all of this holds for the whole period:
 
 - its agent can resume a conversation and the card has an `agentSessionId` (shell cards
   are never stopped);
 - the card is `idle` or `done`: not working, not waiting for the user;
 - no client is attached to it;
-- it has produced no output and no agent event;
+- the agent has reported nothing (`statusSince`, `lastActivityAt`), and no client has
+  attached to, detached from or written to the session. Terminal output alone does not
+  count: a terminal repaints for reasons that are nobody's use of it;
 - the card's `keepRunning` is not set.
 
 Before stopping, the daemon checks for work that would end with the session. If it finds
