@@ -373,6 +373,13 @@ impl State {
         }
     }
 
+    /// Held while a session is created and recorded. A reconcile that listed the
+    /// sessions just before would otherwise find the new card missing from its list
+    /// and mark it ended.
+    pub async fn hold_reconcile(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.reconcile_lock.lock().await
+    }
+
     /// Records a session that was just created, before tmux reports it.
     pub fn mark_live(&self, card_id: &str) {
         self.live.lock().unwrap().insert(card_id.to_string());

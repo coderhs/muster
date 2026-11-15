@@ -642,3 +642,11 @@ hidden folder on the way; anything else is `invalid`.
   changed since, so that an agent's edit is not overwritten unseen. The text is written
   beside the file and moved into place; a link to another file of the project is
   written through and stays a link.
+
+## Round 10: raw terminal input
+
+`term.write` accepts `raw?: bool`. Input normally goes through the session's terminal
+client, which reads it as keys and re-encodes them for the program. A key the program's
+terminal type cannot express is then delivered as its plain equivalent: Ctrl+Enter sent
+as `ESC [ 13 ; 5 u` arrives as Enter. With `raw: true` the daemon hands the bytes to the
+program unchanged. The app uses it for Ctrl+Enter in Claude Code cards ("send now").

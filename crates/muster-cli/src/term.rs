@@ -100,7 +100,7 @@ pub async fn attach(mut c: Client, card_id: &str, watch: bool) -> Result<i32, St
                 if let Some(i) = data.iter().position(|&b| b == DETACH_KEY) {
                     if !watch && i > 0 {
                         let s = String::from_utf8_lossy(&data[..i]).into_owned();
-                        c.send(Method::TermWrite(TermWriteParams { card_id: card_id.to_string(), data: s })).await?;
+                        c.send(Method::TermWrite(TermWriteParams { card_id: card_id.to_string(), data: s, raw: false })).await?;
                     }
                     message = "[detached]".into();
                     let _ = c.send(Method::SessionDetach(CardIdParams { card_id: card_id.to_string() })).await;
@@ -109,7 +109,7 @@ pub async fn attach(mut c: Client, card_id: &str, watch: bool) -> Result<i32, St
                 if !watch {
                     carry.extend_from_slice(data);
                     let s = take_utf8(&mut carry);
-                    c.send(Method::TermWrite(TermWriteParams { card_id: card_id.to_string(), data: s })).await?;
+                    c.send(Method::TermWrite(TermWriteParams { card_id: card_id.to_string(), data: s, raw: false })).await?;
                 }
             }
             _ = winch.recv() => {
