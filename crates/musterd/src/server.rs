@@ -861,6 +861,7 @@ pub(crate) async fn start_card(st: &Arc<State>, card: Card) -> Result<Card> {
     if card.agent_id == "claude" {
         check_claude_permission_hooks(st);
     }
+    let creating = st.hold_reconcile().await;
     st.backend.create(&spec).await?;
     if st.settings().clipboard_passthrough {
         // A new tmux server starts from the config file, where it is off.
@@ -880,6 +881,7 @@ pub(crate) async fn start_card(st: &Arc<State>, card: Card) -> Result<Card> {
         st.store.lock().unwrap().set_idle_stopped(&card.id, None)?;
     }
     let card = st.store.lock().unwrap().set_status(&card.id, CardStatus::Running)?;
+    drop(creating);
     if setup.is_some() {
         log!("card {}: running worktree setup", card.id);
         let info = SetupInfo { state: SetupState::Running, exit_code: None };
