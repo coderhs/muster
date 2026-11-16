@@ -75,6 +75,8 @@ export interface Card {
   idleStoppedAt?: number | null;
   /** Why an idle session was left running at the last check ("has a scheduled job"). */
   idleKept?: string | null;
+  /** The start of the agent's last reply, on one line, from when its latest turn ended. */
+  lastMessage?: string | null;
 }
 
 /** Who wrote a comment or edited notes. Set by the daemon, never by the client. */

@@ -159,6 +159,10 @@ const MIGRATIONS: &[&str] = &[
         last_seen_at INTEGER
     );
     "#,
+    // v11: the start of the agent's last reply
+    r#"
+    ALTER TABLE cards ADD COLUMN last_message TEXT;
+    "#,
 ];
 
 /// Ranges whose written summary is kept per card and per project; the oldest go first.
@@ -252,7 +256,7 @@ const CARD_COLS: &str = "id, project_id, column_id, rank, title, agent_id, cwd, 
      priority, due_at, agent_session_id, status, status_since, turn_started_at, last_activity_at, \
      unread, created_at, updated_at, needs_you_reason, pending_approval, context, title_source, setup, restorable, \
      (SELECT COUNT(*) FROM comments WHERE comments.card_id = cards.id), notes_edited_by, notes_edited_at, model, \
-     keep_running, idle_stopped_at, idle_kept";
+     keep_running, idle_stopped_at, idle_kept, last_message";
 
 const COMMENT_COLS: &str =
     "id, card_id, author_kind, author_card_id, author_agent_id, author_card_title, text, created_at";
@@ -312,6 +316,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         keep_running: r.get::<_, i64>(30)? != 0,
         idle_stopped_at: r.get(31)?,
         idle_kept: r.get(32)?,
+        last_message: r.get(33)?,
     })
 }
 
@@ -765,6 +770,7 @@ impl Store {
             keep_running: false,
             idle_stopped_at: None,
             idle_kept: None,
+            last_message: None,
         };
         self.conn
             .execute(
@@ -1369,6 +1375,11 @@ impl Store {
 
     pub fn set_model(&mut self, id: &str, model: Option<&str>) -> Result<()> {
         self.conn.execute("UPDATE cards SET model = ?2 WHERE id = ?1", params![id, model]).map_err(sql_err)?;
+        Ok(())
+    }
+
+    pub fn set_last_message(&mut self, id: &str, text: Option<&str>) -> Result<()> {
+        self.conn.execute("UPDATE cards SET last_message = ?2 WHERE id = ?1", params![id, text]).map_err(sql_err)?;
         Ok(())
     }
 

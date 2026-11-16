@@ -168,6 +168,10 @@ cards by name; click a name to open that card. A finished card stays in the stri
 even after you have read it in the window, until you click it there or it starts
 working again. Switch it off in Settings → Notifications.
 
+A notification names the card, with "Finished" or "Needs you" and the project under
+it. For a finished card the text is the start of the agent's last reply; for one that
+needs you, what it asks ("Asks to use Bash: git push", or its question).
+
 Also shown:
 
 - **Agents and limits**: one line per agent tool you have installed, saying whether it

@@ -226,11 +226,16 @@ async fn claude_status_approvals_chat_usage_and_restart() {
     type_line(&mut c, &id, &format!("ev Stop {}", sc.payload(4, &sid))).await;
     let w = wait_card(&mut c, &id, "done", |k| k["status"] == "done").await;
     assert_eq!(w["unread"], true);
+    // The reply the turn ended with, for notifications.
+    let said = sc.payloads[4]["last_assistant_message"].as_str().unwrap().trim().to_string();
+    assert!(!said.is_empty());
+    assert_eq!(w["lastMessage"], said.as_str());
     let appended = c.wait_event("chat.appended", &id).await;
     assert!(!appended["messages"].as_array().unwrap().is_empty());
     let r = c.call("card.markRead", json!({"id": id})).await.unwrap();
     assert_eq!(r["card"]["status"], "idle");
     assert_eq!(r["card"]["unread"], false);
+    assert_eq!(r["card"]["lastMessage"], said.as_str(), "kept after the turn");
 
     // A permission request answered "allow" from the board, through the hook.
     type_line(&mut c, &id, &format!("ev UserPromptSubmit {}", sc.payload(6, &sid))).await;
