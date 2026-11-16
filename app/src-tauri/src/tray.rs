@@ -80,8 +80,10 @@ impl<R: Runtime> Hooks for TrayHooks<R> {
         if self.app.get_webview_window("main").is_some_and(|w| w.is_focused().unwrap_or(false)) {
             return;
         }
-        let title = if c.status == "needs_you" { "Needs you" } else { "Finished" };
-        notify::post(title.into(), project.into(), c.title.clone(), card_id.into());
+        // The card is the heading; what it did, or asks, is the body.
+        let state = if c.status == "needs_you" { "Needs you" } else { "Finished" };
+        let subtitle = if project.is_empty() { state.to_string() } else { format!("{state} · {project}") };
+        notify::post(c.title.clone(), subtitle, c.detail.clone().unwrap_or_default(), card_id.into());
     }
 }
 

@@ -330,6 +330,10 @@ pub struct Card {
     /// ("has a scheduled job"). Absent when it is not idle or nothing holds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_kept: Option<String>,
+    /// The start of the agent's last reply, on one line, when its latest turn ended.
+    /// Kept until the next turn ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1947,6 +1951,7 @@ mod tests {
             keep_running: false,
             idle_stopped_at: None,
             idle_kept: None,
+            last_message: None,
         };
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(v["status"], "needs_you");

@@ -20,6 +20,9 @@ pub struct CardLite {
     pub status_since: i64,
     /// Finished or waiting, and not opened by the user since.
     pub unread: bool,
+    /// What a notification about the card says: the agent's last reply, or what it
+    /// waits for.
+    pub detail: Option<String>,
 }
 
 #[derive(Default)]
@@ -259,8 +262,37 @@ fn card_lite(v: &Value) -> Option<(String, CardLite)> {
             status: v.get("status")?.as_str()?.to_string(),
             status_since: v.get("statusSince").and_then(Value::as_i64).unwrap_or(0),
             unread: v.get("unread").and_then(Value::as_bool).unwrap_or(false),
+            detail: detail(v),
         },
     ))
+}
+
+/// The body of a notification about the card: for a finished one the start of the
+/// agent's last reply; for one that needs you, what it asks.
+fn detail(v: &Value) -> Option<String> {
+    let text =
+        |p: &str| v.pointer(p).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    match v.get("status").and_then(Value::as_str)? {
+        "done" => text("/lastMessage"),
+        "needs_you" => {
+            let summary = text("/pendingApproval/summary");
+            match (text("/pendingApproval/kind").as_deref(), summary) {
+                (Some("question"), s) => text("/pendingApproval/questions/0/question").or(s),
+                (Some("plan"), s) => s,
+                (_, Some(s)) => Some(format!("Asks to use {s}")),
+                (_, None) => Some(
+                    match text("/needsYouReason").as_deref() {
+                        Some("question") => "Asked you a question",
+                        Some("input") => "Waiting for your input",
+                        Some("startup_prompt" | "terminal_prompt") => "Waiting at a prompt in the terminal",
+                        _ => return text("/lastMessage").or(Some("Waiting for you".into())),
+                    }
+                    .to_string(),
+                ),
+            }
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -275,6 +307,27 @@ mod tests {
             *self.0.lock().unwrap() += 1;
         }
         fn news(&self, _: &str, _: &CardLite, _: &str) {}
+    }
+
+    #[test]
+    fn notification_text_says_what_was_done_or_what_is_asked() {
+        let d = |v: Value| detail(&v);
+        assert_eq!(d(json!({"status": "done", "lastMessage": " Fixed it. "})).as_deref(), Some("Fixed it."));
+        assert_eq!(d(json!({"status": "done"})), None);
+        let tool = json!({"status": "needs_you", "needsYouReason": "permission",
+            "pendingApproval": {"kind": "tool", "summary": "Bash: git push"}});
+        assert_eq!(d(tool).as_deref(), Some("Asks to use Bash: git push"));
+        let question = json!({"status": "needs_you", "pendingApproval": {"kind": "question",
+            "summary": "Question: Which?", "questions": [{"question": "Which database?"}]}});
+        assert_eq!(d(question).as_deref(), Some("Which database?"));
+        let plan =
+            json!({"status": "needs_you", "pendingApproval": {"kind": "plan", "summary": "Plan ready for approval"}});
+        assert_eq!(d(plan).as_deref(), Some("Plan ready for approval"));
+        let prompt = json!({"status": "needs_you", "needsYouReason": "terminal_prompt", "lastMessage": "x"});
+        assert_eq!(d(prompt).as_deref(), Some("Waiting at a prompt in the terminal"));
+        let other = json!({"status": "needs_you", "needsYouReason": "notification", "lastMessage": "Done half"});
+        assert_eq!(d(other).as_deref(), Some("Done half"));
+        assert_eq!(d(json!({"status": "running", "lastMessage": "x"})), None);
     }
 
     fn ep() -> Endpoint {

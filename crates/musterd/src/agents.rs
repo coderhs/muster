@@ -892,6 +892,24 @@ impl Agents {
         if ca.tracker.status == AgentStatus::NeedsYou && reason.is_none() {
             reason = Some(if pending.is_some() { "permission" } else { "terminal_prompt" }.into());
         }
+        // The reply the turn ended with: from the event, else from the transcript tail
+        // (agents whose turn-end event does not carry it).
+        let mut reply = None;
+        if let AgentEvent::TurnFinished { last_message, error, .. } = &ev.kind {
+            reply =
+                last_message.as_deref().and_then(reply_excerpt).or_else(|| error.as_deref().and_then(reply_excerpt));
+            if reply.is_none() {
+                if let (Some(path), Some(a)) = (ca.tracker.transcript_path.as_deref(), self.adapter(&card.agent_id)) {
+                    if let Some(p) = a.validate_transcript_path(Path::new(path)) {
+                        let page = blocking(|| a.read_chat(&p, None, LAST_REPLY_SCAN));
+                        reply = page.ok().and_then(|page| last_reply(&page.messages));
+                    }
+                }
+            }
+        }
+        if let Some(r) = reply.as_deref().filter(|r| card.last_message.as_deref() != Some(*r)) {
+            let _ = st.store.lock().unwrap().set_last_message(&card.id, Some(r));
+        }
         if matches!(ev.kind, AgentEvent::TurnFinished { .. }) && context.is_none() {
             if let Some(path) = ca.tracker.transcript_path.as_deref() {
                 if let Some(a) = self.adapter(&card.agent_id) {
@@ -917,6 +935,7 @@ impl Agents {
             && reason == before.1.needs_you_reason
             && pending == before.1.pending_approval
             && context == before.1.context
+            && reply.is_none()
             && matches!(ev.kind, AgentEvent::Usage { .. });
         let saved = if unchanged { None } else { self.save(st, &card, ca, reason, pending, context) };
         let after_status = ca.tracker.status;
@@ -939,6 +958,7 @@ impl Agents {
                     c.pending_approval.clone(),
                     c.context.clone(),
                     c.model.clone(),
+                    c.last_message.clone(),
                 )
             };
             // lastActivityAt alone changes on every event; it is sent with the next
@@ -1374,4 +1394,113 @@ async fn run_query(cmd: &muster_agents::CommandSpec) -> Option<String> {
         .output();
     let out = tokio::time::timeout(Duration::from_secs(10), run).await.ok()?.ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Transcript messages read to find the last reply of a turn.
+const LAST_REPLY_SCAN: usize = 8;
+/// Characters of a reply kept for notifications.
+const REPLY_CHARS: usize = 240;
+
+/// The text of the newest assistant message that has any, as an excerpt.
+fn last_reply(messages: &[muster_agents::ChatMessage]) -> Option<String> {
+    messages.iter().rev().filter(|m| m.role == muster_agents::ChatRole::Assistant).find_map(|m| {
+        let text: Vec<&str> = m
+            .parts
+            .iter()
+            .filter_map(|p| match p {
+                muster_agents::ChatPart::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        reply_excerpt(&text.join(" "))
+    })
+}
+
+/// A reply as one short line: markdown marks dropped, whitespace collapsed, cut at a
+/// word near [`REPLY_CHARS`]. `None` when nothing is left.
+pub(crate) fn reply_excerpt(text: &str) -> Option<String> {
+    let mut words: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_start().trim_start_matches(['#', '>']).trim_start();
+        // List bullets and code fences carry no words.
+        let line = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")).unwrap_or(line);
+        if line.starts_with("```") {
+            continue;
+        }
+        for w in line.split_whitespace() {
+            let w: String = w.chars().filter(|c| !matches!(c, '`' | '*')).collect();
+            if !w.is_empty() {
+                words.push(w);
+            }
+        }
+    }
+    let mut out = String::new();
+    for w in words {
+        let len = out.chars().count();
+        if len > 0 && len + 1 + w.chars().count() > REPLY_CHARS {
+            out.push('…');
+            return Some(out);
+        }
+        if len > 0 {
+            out.push(' ');
+        }
+        if w.chars().count() > REPLY_CHARS {
+            out.extend(w.chars().take(REPLY_CHARS));
+            out.push('…');
+            return Some(out);
+        }
+        out.push_str(&w);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+    use muster_agents::{ChatMessage, ChatPart, ChatRole};
+
+    #[test]
+    fn a_reply_becomes_one_plain_line() {
+        let text = "## Done\n\nI moved the **redirect** into `auth.rs`:\n\n- added a test\n- fixed the docs\n\n```rust\nfn x() {}\n```";
+        assert_eq!(
+            reply_excerpt(text).as_deref(),
+            Some("Done I moved the redirect into auth.rs: added a test fixed the docs fn x() {}")
+        );
+        assert_eq!(reply_excerpt("  \n ``` \n"), None);
+    }
+
+    #[test]
+    fn a_long_reply_is_cut_at_a_word() {
+        let text = "word ".repeat(100);
+        let r = reply_excerpt(&text).unwrap();
+        assert!(r.ends_with("word…"), "{r}");
+        assert!(r.chars().count() <= REPLY_CHARS + 1);
+        let one = "x".repeat(500);
+        assert_eq!(reply_excerpt(&one).unwrap().chars().count(), REPLY_CHARS + 1);
+    }
+
+    #[test]
+    fn the_last_reply_is_the_newest_assistant_text() {
+        let msg =
+            |role, parts: Vec<ChatPart>| ChatMessage { id: "m".into(), role, timestamp: None, model: None, parts };
+        let text = |t: &str| ChatPart::Text { text: t.into() };
+        let messages = vec![
+            msg(ChatRole::User, vec![text("do it")]),
+            msg(ChatRole::Assistant, vec![text("All done."), text("Tests pass.")]),
+            msg(ChatRole::User, vec![text("thanks")]),
+            msg(ChatRole::Assistant, vec![]),
+        ];
+        assert_eq!(last_reply(&messages).as_deref(), Some("All done. Tests pass."));
+    }
+
+    /// Cursor's turn-end event has no reply text; it comes from the transcript.
+    #[test]
+    fn a_cursor_reply_comes_from_its_transcript() {
+        use muster_agents::AgentAdapter;
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../muster-agents/tests/fixtures/cursor/transcript-basic.jsonl");
+        let page = muster_agents::Cursor::default().read_chat(&fixture, None, LAST_REPLY_SCAN).unwrap();
+        let reply = last_reply(&page.messages).expect("a reply");
+        assert!(!reply.contains('\n') && reply.chars().count() <= REPLY_CHARS + 1, "{reply}");
+    }
 }

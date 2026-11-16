@@ -865,3 +865,11 @@ Device {id, name, createdAt, lastSeenAt?}
   open connections at once.
 - Only the user's own clients (master token) may call `remote.*`; card connections are
   refused.
+
+## Round 15: the last reply
+
+Cards gain `lastMessage?: string`: the start of the agent's reply from when its latest
+turn ended, on one line, without markdown marks, cut at a word after about 240
+characters. It is kept until the next turn ends. Claude Code and Codex report the reply
+with the turn's end; for other agents it is read from the transcript. The menu-bar
+item uses it for the body of a "Finished" notification.
