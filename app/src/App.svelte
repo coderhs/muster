@@ -14,6 +14,7 @@
   import LinkPicker from "./lib/ui/LinkPicker.svelte";
   import CardModal from "./lib/ui/CardModal.svelte";
   import NewCardDialog from "./lib/ui/NewCardDialog.svelte";
+  import CardSearch from "./lib/ui/CardSearch.svelte";
   import Icon from "./lib/ui/Icon.svelte";
   import { isTauri } from "./lib/connection";
 
@@ -65,6 +66,14 @@
       e.preventDefault();
       if (narrow) drawer = !drawer;
       else app.toggleSidebar();
+    }
+    // Cmd+F or Cmd+K opens the card search. In the terminal Cmd+K clears the screen
+    // instead, as in Terminal.app.
+    const plainCmd = e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey;
+    if (plainCmd && (e.key === "f" || (e.key === "k" && !(e.target as HTMLElement)?.closest?.(".xterm")))) {
+      e.preventDefault();
+      app.searchOpen = !app.searchOpen;
+      return;
     }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "t") {
       e.preventDefault();
@@ -241,6 +250,10 @@
 
 {#if app.shortcutsOpen}
   <ShortcutSheet />
+{/if}
+
+{#if app.searchOpen}
+  <CardSearch />
 {/if}
 
 {#if app.settingsOpen}

@@ -260,7 +260,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (deleting || killing) return;
+    if (deleting || killing || app.searchOpen) return;
     const inTerm = !!(e.target as HTMLElement)?.closest?.(".xterm");
     if (e.key === "w" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
       e.preventDefault();

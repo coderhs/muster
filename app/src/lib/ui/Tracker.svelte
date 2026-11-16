@@ -53,7 +53,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.defaultPrevented || app.openCardId || app.newCard || app.shortcutsOpen || app.settingsOpen || app.projectSettings) return;
+    if (e.defaultPrevented || app.openCardId || app.newCard || app.shortcutsOpen || app.settingsOpen || app.projectSettings || app.searchOpen) return;
     const t = e.target as HTMLElement;
     if (t.closest("input, textarea, select, [contenteditable], [role=dialog], [role=menu]")) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
