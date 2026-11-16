@@ -98,6 +98,8 @@ export class AppState {
   /** Bumped to ask the sidebar to start adding a project (browser path entry). */
   addProjectRequest = $state(0);
   shortcutsOpen = $state(false);
+  /** The card search (⌘F / ⌘K). */
+  searchOpen = $state(false);
   cardMenu = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);
   /** A card picker for linking, opened from a card. */
   linking = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);

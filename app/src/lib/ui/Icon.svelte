@@ -26,6 +26,7 @@
     restore: "M3 8a5 5 0 1 0 1.5-3.5M3 2.5v2.5h2.5",
     handoff: "M2.5 8h8M8 5l3 3-3 3M13.5 3v10",
     cpu: "M5 5h6v6H5zM6.5 2.5v2M9.5 2.5v2M6.5 11.5v2M9.5 11.5v2M2.5 6.5h2M2.5 9.5h2M11.5 6.5h2M11.5 9.5h2",
+    search: "M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM10.3 10.3l3.2 3.2",
   };
   export type IconName = keyof typeof PATHS;
 </script>

@@ -7,6 +7,7 @@
     {
       title: "Everywhere",
       keys: [
+        ["⌘F  or  ⌘K", "Search cards in all projects"],
         ["⌘T", "Board / Tracker"],
         ["⌘1 … ⌘9", "Switch project"],
         ["⌘,", "Settings"],
@@ -41,7 +42,7 @@
         ["⌃`", "Focus terminal / side panel"],
         ["⌘I", "Hide / show the details column"],
         ["⌘C  ⌘V", "Copy / paste in the terminal"],
-        ["⌘K", "Clear the terminal"],
+        ["⌘K", "Clear the terminal (while it has focus)"],
         ["⌘← ⌘→  ⌥← ⌥→", "Line start / end, word left / right"],
         ["⇧↵", "New line without sending (agents)"],
       ],
