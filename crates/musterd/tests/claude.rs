@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
     --resume) SID="$2"; RESUMED=yes; shift ;;
     --settings) SETTINGS="$2"; shift ;;
     --append-system-prompt-file) INSTRUCTIONS="$2"; shift ;;
-    --add-dir) SKILLS="$2"; shift ;;
+    --plugin-dir) PLUGIN="$2"; shift ;;
     --) shift; PROMPT="$*"; break ;;
   esac
   shift
@@ -32,7 +32,7 @@ done
 HOOK=$(sed -n 's/^ *"command": *"\(.*muster-hook\)",* *$/\1/p' "$SETTINGS" | head -1)
 echo "FAKE-CLAUDE sid=$SID resumed=$RESUMED prompt=$PROMPT hook=${HOOK:+found}"
 [ -f "$INSTRUCTIONS" ] && grep -q MUSTER_CARD_ID "$INSTRUCTIONS" && echo "INSTRUCTIONS-OK"
-[ -f "$SKILLS/.claude/skills/muster/SKILL.md" ] && echo "SKILL-OK"
+[ -f "$PLUGIN/.claude-plugin/plugin.json" ] && [ -f "$PLUGIN/skills/muster/SKILL.md" ] && echo "SKILL-OK"
 while IFS= read -r line; do
   set -- $line
   case "$1" in
@@ -928,7 +928,7 @@ async fn context_links_messages_and_handoff() {
     let port = env.start_daemon();
     let mut c = Client::connect(port, &env.home).await;
     assert!(env.home.join("agents/muster-instructions.md").is_file());
-    assert!(env.home.join("agents/skill/.claude/skills/muster/SKILL.md").is_file());
+    assert!(env.home.join("agents/plugin/skills/muster/SKILL.md").is_file());
     let (pid, cols) = setup_project(&mut c, &env).await;
     let a = new_card(&mut c, &pid, &cols[0], "claude").await;
     let b = new_card(&mut c, &pid, &cols[0], "claude").await;

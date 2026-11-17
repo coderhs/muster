@@ -350,8 +350,8 @@ ProcStats {memBytes, cpuPercent, processes}
   environment, next to `MUSTER_CARD_ID`; the CLI uses `MUSTER_CARD_ID` as "me".
 - Agents learn about the CLI per launch, without any write to their own config or the
   repo: the daemon generates `$MUSTER_HOME/agents/muster-instructions.md` (short) and a
-  `muster` skill under `$MUSTER_HOME/agents/skill/`, and the adapter passes both on launch
-  and resume (Claude Code: `--append-system-prompt-file` and `--add-dir`).
+  plugin with the `muster` skill under `$MUSTER_HOME/agents/plugin/`, and the adapter passes
+  both on launch and resume (Claude Code: `--append-system-prompt-file` and `--plugin-dir`).
 
 ## Round 4: questions and plans, agent capabilities, coarse status, daemon status
 

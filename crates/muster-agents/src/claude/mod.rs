@@ -91,9 +91,8 @@ impl ClaudeCode {
         if let Some(f) = &spec.instructions {
             args.extend(["--append-system-prompt-file".into(), f.to_string_lossy().into_owned()]);
         }
-        if let Some(d) = &spec.skills_dir {
-            // Variadic option: the prompt is separated by `--` below.
-            args.extend(["--add-dir".into(), d.to_string_lossy().into_owned()]);
+        if let Some(d) = &spec.plugin_dir {
+            args.extend(["--plugin-dir".into(), d.to_string_lossy().into_owned()]);
         }
         args.extend(spec.extra_args.iter().cloned());
         if let Some(p) = spec.prompt.as_ref().filter(|p| !p.trim().is_empty()) {
