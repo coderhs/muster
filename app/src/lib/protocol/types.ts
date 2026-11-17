@@ -381,6 +381,8 @@ export interface Methods {
   "message.cancel": [{ id: Id }, Record<string, never>];
   "card.handoff": [{ id: Id; agentId?: string }, { card: Card }];
   "card.aiRename": [{ id: Id }, { card: Card }];
+  "card.changes": [{ id: Id; base?: string; scope?: ChangeScope }, CardChanges];
+  "card.diff": [{ id: Id; path: string; base?: string; scope?: ChangeScope }, { path: string; patch: string; truncated?: boolean }];
   "daemon.status": [Record<string, never>, DaemonStatus];
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
@@ -482,6 +484,36 @@ export interface ProjectSummary {
 export type DocKind = "claude" | "agents" | "doc";
 
 /** A Markdown file of a project; `path` is relative to the project's folder. */
+export type ChangeScope = "all" | "committed" | "uncommitted";
+
+export type ChangeKind = "added" | "modified" | "deleted" | "renamed" | "untracked";
+
+export interface ChangedFile {
+  path: string;
+  oldPath?: string;
+  kind: ChangeKind;
+  additions: number;
+  deletions: number;
+  binary?: boolean;
+}
+
+export interface CardChanges {
+  root: string;
+  branch?: string;
+  /** A branch name, or "HEAD" when only uncommitted changes are shown. */
+  base: string;
+  /** The base used when none is chosen. */
+  defaultBase: string;
+  /** Branches that can be chosen as the base, most recently changed first. */
+  branches: string[];
+  scope: ChangeScope;
+  baseCommit: string;
+  commits: number;
+  uncommitted: boolean;
+  files: ChangedFile[];
+  truncated?: boolean;
+}
+
 export interface DocEntry {
   path: string;
   kind: DocKind;

@@ -388,6 +388,19 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             to_value(DocsWriteResult { doc })
         }
 
+        Method::CardChanges(p) => {
+            let (cwd, project) = card_folders(&st, &p.id)?;
+            let opts = muster_core::changes::Options { base: p.base.as_deref(), scope: p.scope };
+            to_value(muster_core::changes::list(&cwd, &project, opts).await?)
+        }
+
+        Method::CardDiff(p) => {
+            let (cwd, project) = card_folders(&st, &p.id)?;
+            let opts = muster_core::changes::Options { base: p.base.as_deref(), scope: p.scope };
+            let (patch, truncated) = muster_core::changes::diff(&cwd, &project, opts, &p.path).await?;
+            to_value(CardDiffResult { path: p.path, patch, truncated })
+        }
+
         Method::ProjectSummary(p) => {
             if p.to <= p.from {
                 return Err(invalid("the range must end after it starts"));
@@ -809,6 +822,14 @@ enum Restricted {
     Call(Method),
     /// Already answered.
     Done(Value),
+}
+
+/// A card's working folder and its project's folder.
+fn card_folders(st: &State, id: &str) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
+    let store = st.store.lock().unwrap();
+    let card = store.get_card(id)?;
+    let project = store.get_project(&card.project_id)?;
+    Ok((card.cwd.into(), project.path.into()))
 }
 
 fn refuse(what: &str) -> muster_proto::ErrorBody {

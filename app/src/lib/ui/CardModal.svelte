@@ -13,6 +13,7 @@
   import Dialog from "./Dialog.svelte";
   import ApprovalBar from "./ApprovalBar.svelte";
   import ChatView from "./ChatView.svelte";
+  import Changes from "./Changes.svelte";
   import ContextMeter from "./ContextMeter.svelte";
   import Comments from "./Comments.svelte";
   import { authorLabel } from "./authors";
@@ -87,7 +88,8 @@
   // svelte-ignore state_referenced_locally
   const forceTerminal = app.focusTerminal;
   app.focusTerminal = false;
-  let tab = $state<"terminal" | "chat">(
+  type Tab = "terminal" | "chat" | "changes";
+  let tab = $state<Tab>(
     forceTerminal ? "terminal" :
     (() => {
       try {
@@ -98,18 +100,23 @@
     })(),
   );
   let chatMounted = $state(false);
+  let changesMounted = $state(false);
   const cap = $derived(caps(agent));
   const rename = $derived(card ? aiRename(card, agent) : { offered: false, blocked: null });
   const hasChat = $derived(!!card && cap.chat);
   const canResume = $derived(!!card?.agentSessionId && cap.resume);
   const showChat = $derived(hasChat && tab === "chat");
+  const showChanges = $derived(tab === "changes");
+  const tabs = $derived<Tab[]>(hasChat ? ["terminal", "chat", "changes"] : ["terminal", "changes"]);
   $effect(() => {
     if (showChat) chatMounted = true;
+    if (showChanges) changesMounted = true;
   });
-  function setTab(t: "terminal" | "chat") {
+  function setTab(t: Tab) {
     tab = t;
+    // Changes is not remembered: a card opens on the agent, not on its diff.
     try {
-      localStorage.setItem(TAB_KEY, t);
+      if (t !== "changes") localStorage.setItem(TAB_KEY, t);
     } catch {
       /* ignore */
     }
@@ -269,10 +276,11 @@
       e.preventDefault();
       if ((e.target as HTMLElement)?.closest?.("input, textarea, select")) (e.target as HTMLElement).blur();
       else close();
-    } else if (e.key === "Tab" && e.ctrlKey && hasChat) {
-      // Ctrl+Tab switches Terminal and Chat.
+    } else if (e.key === "Tab" && e.ctrlKey) {
+      // Ctrl+Tab steps through Terminal, Chat and Changes; with Shift, backwards.
       e.preventDefault();
-      setTab(tab === "terminal" ? "chat" : "terminal");
+      const i = tabs.indexOf(tab);
+      setTab(tabs[(i + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length]);
     } else if (e.key === "i" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
       // Cmd+I hides or shows the details column.
       e.preventDefault();
@@ -360,17 +368,20 @@
 
       <div class="main">
         <div class="pane">
-        {#if hasChat}
-          <div class="tabs" role="tablist">
-            <button role="tab" aria-selected={tab === "terminal"} class:on={tab === "terminal"} onclick={() => setTab("terminal")}>
-              <Icon name="terminal" size={13} />Terminal
-            </button>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === "terminal"} class:on={tab === "terminal"} onclick={() => setTab("terminal")}>
+            <Icon name="terminal" size={13} />Terminal
+          </button>
+          {#if hasChat}
             <button role="tab" aria-selected={tab === "chat"} class:on={tab === "chat"} onclick={() => setTab("chat")}>
               Chat
             </button>
-            <span class="tabkeys"><kbd>⌃</kbd><kbd>⇥</kbd> switch</span>
-          </div>
-        {/if}
+          {/if}
+          <button role="tab" aria-selected={tab === "changes"} class:on={tab === "changes"} onclick={() => setTab("changes")}>
+            <Icon name="branch" size={13} />Changes
+          </button>
+          <span class="tabkeys"><kbd>⌃</kbd><kbd>⇥</kbd> switch</span>
+        </div>
         {#if card.needsYouReason === "setup_failed"}
           <div class="appr-wrap">
             <div class="setup-failed">
@@ -390,7 +401,10 @@
         {#if chatMounted}
           <div class="chat-wrap" class:hidden={!showChat}><ChatView {card} active={showChat} /></div>
         {/if}
-        <div class="term-wrap" class:hidden={showChat}>
+        {#if changesMounted}
+          <div class="chat-wrap" class:hidden={!showChanges}><Changes {card} active={showChanges} /></div>
+        {/if}
+        <div class="term-wrap" class:hidden={showChat || showChanges}>
           <div class="term" class:hidden={!termShown} bind:this={termHost}></div>
           {#if !termShown}
             <div class="noterm">

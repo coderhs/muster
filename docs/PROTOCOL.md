@@ -873,3 +873,48 @@ turn ended, on one line, without markdown marks, cut at a word after about 240
 characters. It is kept until the next turn ends. Claude Code and Codex report the reply
 with the turn's end; for other agents it is read from the transcript. The menu-bar
 item uses it for the body of a "Finished" notification.
+
+## Round 16: a card's changes
+
+For the card's Changes tab. The methods are for the user's client only; a card's
+connection is refused. Both read git when asked; nothing is watched or cached.
+
+| Method | Params | Result |
+|---|---|---|
+| `card.changes` | `{id, base?: string, scope?: Scope}` | `CardChanges` |
+| `card.diff` | `{id, path, base?: string, scope?: Scope}` | `{path, patch, truncated?: bool}` |
+
+```
+Scope: "all" (default) | "committed" | "uncommitted"
+CardChanges {root, branch?, base, defaultBase, branches: string[], scope, baseCommit, commits,
+             uncommitted, files: ChangedFile[], truncated?: bool}
+ChangedFile {path, oldPath?, kind, additions, deletions, binary?: bool}
+             kind: "added" | "modified" | "deleted" | "renamed" | "untracked"
+```
+
+The changes are those of the repository the card's folder is in, measured from where
+the card's branch left its base, and include uncommitted and untracked files. The base
+is the branch checked out in the project's folder when that is the same repository,
+else `origin/HEAD`, else the first of `main`, `master`, `trunk`, `develop` that exists.
+`baseCommit` is the merge base of the base and `HEAD`. When the card works on the base
+branch itself, or no base is found, `base` is `"HEAD"` and only uncommitted changes are
+listed. `defaultBase` is that automatic choice.
+
+`base` picks another branch to compare against: a local branch, or a remote one such as
+`origin/main` (`invalid` when there is no such branch or it shares no history with
+`HEAD`). `branches` lists the local branches, most recently changed first (at most 200),
+with the automatic base added when it is a remote branch.
+
+`scope` picks which changes: `all` compares `baseCommit` with the files on disk,
+`committed` compares `baseCommit` with `HEAD`, and `uncommitted` compares `HEAD` with the
+files on disk. Untracked files are in `all` and `uncommitted`. `commits` counts the
+commits since `baseCommit`. Paths are relative to `root`,
+the repository's top folder. At most 500 files are listed; `truncated` says there were
+more. A folder that is not in a git repository is `invalid`.
+
+`card.diff` returns the unified diff of one file, as `git diff` prints it. `path` must
+be one `card.changes` lists with the same `base` and `scope` (`not_found` otherwise). At most 512 KB is returned, cut at
+a line; `truncated` says there was more. Git runs with external diff, text conversion
+and fsmonitor off.
+
+Review comments are sent with `message.send`; there is no separate method.

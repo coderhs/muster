@@ -57,6 +57,8 @@ prompt is not sent when resuming.
   keep memory low.
 - **Chat**: the conversation as readable messages, for agents whose transcript Muster
   can read.
+- **Changes**: what the agent changed in the card's folder, to review without leaving
+  Muster. See [Reviewing changes](#reviewing-changes).
 - **Approvals and questions**: for Claude Code, a permission request, a question or a
   plan can be answered from the card without opening the terminal.
 - **Details**: column, priority, due date, notes and links. Links connect cards for
@@ -70,6 +72,37 @@ prompt is not sent when resuming.
   into the session) and uses that name as the card's title. It is available on Claude
   Code cards with a running session that is between turns; type a title yourself at
   any time to keep your own.
+
+## Reviewing changes
+
+The **Changes** tab of a card (next to Terminal and Chat; ⌃⇥ steps through them) lists
+the files the card's folder changed and shows the diff of the one you pick.
+
+- For a worktree card the changes are measured against the branch checked out in the
+  project folder (usually `main`), from where the card's branch left it: the agent's
+  commits plus anything not committed yet, including new files. Changes made on the
+  base branch since then are not shown.
+- For a card that works in the project folder on the base branch itself, only the
+  uncommitted changes are shown.
+- **Compare to** picks another branch to measure against; Automatic is the choice
+  above. **All / Committed / Uncommitted** shows the commits and the uncommitted work
+  together, only the branch's commits, or only what is not committed yet (new files
+  included). Both choices are remembered per card.
+- The header names the card's branch, how many commits it has, whether anything is
+  uncommitted, and the total lines added and removed. The list refreshes when the tab opens, when the agent
+  finishes a turn, and with the refresh button.
+
+Click a line of the diff to comment on it (⌘↩ saves, Esc cancels); click a comment to
+change or delete it. A note for the whole review can go in the box at the bottom.
+**Send to agent** sends the note and every comment, each with its file, line and the
+line's text, as one message. Like other messages it waits until the agent is between
+turns. Unsent comments are kept, even when the card or the window is closed, until you
+send or discard them. Shell cards have no agent to send a review to.
+
+Known limitation: a comment's line number refers to the version you were looking at. In
+**Committed** that is the committed version, which can differ from the file on disk
+when there are uncommitted edits on top. Each comment also quotes the line's text, so
+the agent can still find the spot. To be revisited if it causes trouble.
 
 ## Sidebar
 
