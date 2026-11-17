@@ -326,6 +326,7 @@ async fn dev_and_stable_daemons_side_by_side() {
 
 const FAKE_CURSOR: &str = r#"#!/bin/sh
 echo "FAKE-CURSOR $*"
+[ "$1" = --plugin-dir ] && grep -q "name: muster" "$2/skills/muster/SKILL.md" && echo "CURSOR-SKILL-OK"
 while IFS= read -r line; do
   set -- $line
   case "$1" in
@@ -367,6 +368,7 @@ async fn cursor_status_from_its_hooks() {
     assert!(card.get("agentSessionId").is_none(), "cursor picks its own id");
     c.attach(&id, 200, 30).await;
     c.wait_output("FAKE-CURSOR --plugin-dir").await;
+    c.wait_output("CURSOR-SKILL-OK").await;
     // Prompt, session start, a shell tool call, stop.
     for (ev, file) in &events[..8] {
         c.call("term.write", json!({"cardId": id, "data": format!("ev {ev} {file}\r")})).await.unwrap();

@@ -5,7 +5,9 @@
 //! plugin (`.cursor-plugin/plugin.json` + `hooks/hooks.json`) in its own state directory,
 //! so `~/.cursor/hooks.json` is never touched. Standing instructions travel the same
 //! way, as `additional_context` printed by the plugin's `sessionStart` hook (plugin
-//! `rules/` were not picked up by the CLI in testing).
+//! `rules/` were not picked up by the CLI in testing). Skills from
+//! [`LaunchSpec::plugin_dir`] (`skills/<name>/SKILL.md`) are copied into the same plugin;
+//! Cursor loads those even in `-p` runs and on resume, where `sessionStart` may not fire.
 //!
 //! The session id comes from the first hook event (`conversation_id`). A chat can be
 //! created up front with [`Cursor::create_chat`] (`cursor-agent create-chat`) and
@@ -68,6 +70,28 @@ fn write_if_changed(path: &Path, content: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// `(name, SKILL.md text)` for each `<dir>/<name>/SKILL.md`, sorted by name. A missing
+/// directory gives none.
+fn read_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut out = Vec::new();
+    for e in entries {
+        let e = e?;
+        let Some(name) = e.file_name().to_str().map(str::to_string) else { continue };
+        match std::fs::read_to_string(e.path().join("SKILL.md")) {
+            Ok(text) => out.push((name, text)),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 impl Cursor {
     /// Runs `cursor-agent create-chat` in `cwd` (local, no model request) and returns the
     /// new chat id. See the module docs for why the default launch does not use it.
@@ -78,7 +102,12 @@ impl Cursor {
     }
 
     /// Generate (if changed) the per-launch plugin and return its directory.
-    pub fn write_plugin(&self, hooks: &HookConfig, instructions: Option<&Path>) -> io::Result<PathBuf> {
+    pub fn write_plugin(
+        &self,
+        hooks: &HookConfig,
+        instructions: Option<&Path>,
+        skills_from: Option<&Path>,
+    ) -> io::Result<PathBuf> {
         let bin = crate::types::shell_quote(&hooks.hook_bin.to_string_lossy());
         let context = match instructions {
             Some(f) => Some(json!({ "additional_context": std::fs::read_to_string(f)? }).to_string()),
@@ -88,7 +117,14 @@ impl Cursor {
         for &ev in HOOK_EVENTS {
             hook_map.insert(ev.into(), json!([{ "command": format!("{bin} hook {ev}"), "timeout": 10 }]));
         }
-        let key = format!("{bin}|{}", context.as_deref().unwrap_or(""));
+        let skills = match skills_from {
+            Some(d) => read_skills(&d.join("skills"))?,
+            None => Vec::new(),
+        };
+        let mut key = format!("{bin}|{}", context.as_deref().unwrap_or(""));
+        for (name, text) in &skills {
+            key.push_str(&format!("|{name}|{text}"));
+        }
         let dir = hooks.state_dir.join("cursor").join(format!("plugin-{:016x}", fnv1a(key.as_bytes())));
         std::fs::create_dir_all(dir.join(".cursor-plugin"))?;
         std::fs::create_dir_all(dir.join("hooks"))?;
@@ -97,6 +133,11 @@ impl Cursor {
             write_if_changed(&ctx_file, ctx)?;
             let cmd = format!("cat >/dev/null; cat {}", crate::types::shell_quote(&ctx_file.to_string_lossy()));
             hook_map["sessionStart"].as_array_mut().unwrap().push(json!({ "command": cmd, "timeout": 10 }));
+        }
+        for (name, text) in &skills {
+            let d = dir.join("skills").join(name);
+            std::fs::create_dir_all(&d)?;
+            write_if_changed(&d.join("SKILL.md"), text)?;
         }
         write_if_changed(
             &dir.join(".cursor-plugin").join("plugin.json"),
@@ -113,7 +154,7 @@ impl Cursor {
         let mut args = Vec::new();
         let mut env = Vec::new();
         if let Some(h) = &spec.hooks {
-            let dir = self.write_plugin(h, spec.instructions.as_deref())?;
+            let dir = self.write_plugin(h, spec.instructions.as_deref(), spec.plugin_dir.as_deref())?;
             args.extend(["--plugin-dir".into(), dir.to_string_lossy().into_owned()]);
             env.push(("MUSTER_CARD_ID".into(), spec.card_id.clone()));
             env.push(("MUSTER_AGENT_ID".into(), "cursor".into()));

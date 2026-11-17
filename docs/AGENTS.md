@@ -367,6 +367,12 @@ calls (local, no model).
   `--resume`, which is why the adapter lets Cursor choose the id and reads it from the
   first event. Launched through the library with a preset id, the instructions were indeed
   missing `[run]`.
+- **Skills `[run]`** (cursor-agent 2026.11.13): a plugin's `skills/<name>/SKILL.md` (with
+  `name` / `description` front matter) is loaded even in a `-p` run: asked about it, the
+  agent named the `muster` skill and quoted a codeword that was only in that file. The
+  adapter copies the skills from `LaunchSpec::plugin_dir` into its generated plugin, so a
+  Cursor card gets the `muster` skill on every launch and resume, also where
+  `sessionStart` does not fire.
 - **Session id**: `create-chat` prints a UUID, and `--resume <id>` uses it `[run]`.
 - **Transcript `[run]`**: `~/.cursor/projects/<workspace path, '/'→'-'>/agent-transcripts/<id>/<id>.jsonl`,
   where the workspace is the git root in interactive runs. Lines are `{role, message.content[{type:"text"}]}`
