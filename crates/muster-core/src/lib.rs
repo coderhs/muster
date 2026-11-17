@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod attach;
+pub mod changes;
 pub mod power;
 pub mod procstats;
 pub mod pty;

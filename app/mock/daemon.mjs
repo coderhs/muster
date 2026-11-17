@@ -961,6 +961,29 @@ const handlers = {
     broadcast("link.changed", { link: { a: x, b: y }, linked: true });
     return { card: c };
   },
+  "card.changes": ({ id: cid, base, scope = "all" }) => {
+    const c = getCard(cid);
+    const branches = ["main", "release/0.2", ...(c.branch ? [c.branch] : [])];
+    need(!base || branches.includes(base), "invalid", `no branch named "${base}"`);
+    const common = { root: c.cwd, defaultBase: c.branch ? "main" : "HEAD", branches, scope, baseCommit: "1a2b3c4" };
+    if (!c.branch) return { ...common, branch: "main", base: base ?? "HEAD", commits: 0, uncommitted: false, files: [] };
+    const files = [
+      { path: "src/board.ts", kind: "modified", additions: 4, deletions: 2, committed: true },
+      { path: "src/columns/review.ts", kind: "untracked", additions: 3, deletions: 0, committed: false },
+      { path: "docs/Old.md", kind: "deleted", additions: 0, deletions: 2, committed: true },
+    ].filter((f) => scope === "all" || f.committed === (scope === "committed")).map(({ committed, ...f }) => f);
+    return { ...common, branch: c.branch, base: base ?? "main", commits: 2, uncommitted: true, files };
+  },
+  "card.diff": ({ id: cid, path }) => {
+    getCard(cid);
+    const patches = {
+      "src/board.ts": "diff --git a/src/board.ts b/src/board.ts\n--- a/src/board.ts\n+++ b/src/board.ts\n@@ -10,6 +10,8 @@ export function board()\n const columns = load();\n-const cards = [];\n-render(columns);\n+const cards = loadCards();\n+if (!cards.length) showEmpty();\n+render(columns, cards);\n+track(\"board.open\");\n return columns;\n }\n",
+      "src/columns/review.ts": "diff --git a/src/columns/review.ts b/src/columns/review.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/columns/review.ts\n@@ -0,0 +1,3 @@\n+export const REVIEW = \"review\";\n+export const label = \"Review\";\n+export default REVIEW;\n",
+      "docs/Old.md": "diff --git a/docs/Old.md b/docs/Old.md\ndeleted file mode 100644\n--- a/docs/Old.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# Old\n-Gone.\n",
+    };
+    need(path in patches, "not_found", `${path} has no changes`);
+    return { path, patch: patches[path] };
+  },
   "card.aiRename": ({ id: cid }) => {
     const c = getCard(cid);
     need(c.agentId === "claude", "invalid", "this agent cannot name its own session");

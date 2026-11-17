@@ -864,6 +864,111 @@ pub struct DocsWriteResult {
     pub doc: DocEntry,
 }
 
+/// How a file differs from the base in `card.changes`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    /// A new file git does not track yet.
+    Untracked,
+}
+
+/// Which changes `card.changes` lists.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeScope {
+    /// Committed and uncommitted: from the base to the files on disk.
+    #[default]
+    All,
+    /// The branch's commits since the base.
+    Committed,
+    /// What is not committed yet, new files included.
+    Uncommitted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardChangesParams {
+    pub id: String,
+    /// A branch to compare against instead of the automatic one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub scope: ChangeScope,
+}
+
+/// One changed file of a card's folder.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFile {
+    /// Relative to the repository's top folder.
+    pub path: String,
+    /// The path before a rename.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    pub kind: ChangeKind,
+    pub additions: u32,
+    pub deletions: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub binary: bool,
+}
+
+/// `card.changes`: what the card's folder changed against the branch it started from,
+/// committed or not.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardChangesResult {
+    /// The repository's top folder.
+    pub root: String,
+    /// The branch checked out in the card's folder; absent when detached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// What the changes are measured against: a branch name, or `HEAD` when the card
+    /// works on the base branch itself (then only uncommitted changes show).
+    pub base: String,
+    /// The base used when none is chosen (`HEAD` when that means uncommitted only).
+    pub default_base: String,
+    /// Branches that can be chosen as the base, most recently changed first.
+    pub branches: Vec<String>,
+    pub scope: ChangeScope,
+    /// The commit the comparison starts from (short form).
+    pub base_commit: String,
+    /// Commits on the card's branch since `base_commit`.
+    pub commits: u32,
+    /// The folder has changes that are not committed.
+    pub uncommitted: bool,
+    pub files: Vec<ChangedFile>,
+    /// More files changed than are listed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDiffParams {
+    pub id: String,
+    /// A path from `card.changes` with the same base and scope.
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub scope: ChangeScope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDiffResult {
+    pub path: String,
+    /// The unified diff of the file, as `git diff` prints it.
+    pub patch: String,
+    /// The patch is longer than the daemon returns.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
 /// A time range for `project.summary`, in unix ms: `from` inclusive, `to` exclusive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1582,6 +1687,8 @@ pub enum Method {
     DocsRead(DocsReadParams),
     DocsWrite(DocsWriteParams),
     CardAiRename(IdParams),
+    CardChanges(CardChangesParams),
+    CardDiff(CardDiffParams),
     ProjectSummary(ProjectSummaryParams),
     ProjectSummarize(ProjectSummarizeParams),
     RemoteStatus(Empty),
@@ -1667,6 +1774,8 @@ methods! {
     DocsRead => "docs.read",
     DocsWrite => "docs.write",
     CardAiRename => "card.aiRename",
+    CardChanges => "card.changes",
+    CardDiff => "card.diff",
     ProjectSummary => "project.summary",
     ProjectSummarize => "project.summarize",
     RemoteStatus => "remote.status",
