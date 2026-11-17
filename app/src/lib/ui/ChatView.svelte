@@ -5,6 +5,7 @@
   import { useApp } from "../state/context";
   import { composeInput, mergeChat } from "../agent/agent";
   import Icon from "./Icon.svelte";
+  import ChatMarkdown from "./ChatMarkdown.svelte";
 
   let { card, active }: { card: Card; active: boolean } = $props();
   const app = useApp();
@@ -84,7 +85,11 @@
     if (!data || sending) return;
     sending = true;
     try {
+      // Enter goes separately, after the agent has taken the text: arriving in the same
+      // write, Claude Code reads the whole burst as a paste and Enter as a new line.
       await app.client.request("term.write", { cardId, data });
+      await new Promise((r) => setTimeout(r, SUBMIT_DELAY_MS));
+      await app.client.request("term.write", { cardId, data: "\r" });
       draft = "";
       // Follow the conversation after sending, wherever the user had scrolled to.
       stickUntil = Date.now() + 5000;
@@ -95,6 +100,8 @@
       sending = false;
     }
   }
+
+  const SUBMIT_DELAY_MS = 150;
 
   const time = (t: number | null | undefined) =>
     t ? new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
@@ -115,7 +122,11 @@
       <div class="msg r-{m.role}">
         {#each m.parts as part, i (i)}
           {#if part.type === "text"}
-            <div class="text">{part.text}</div>
+            {#if m.role === "assistant"}
+              <div class="text md"><ChatMarkdown text={part.text} /></div>
+            {:else}
+              <div class="text">{part.text}</div>
+            {/if}
           {:else if part.type === "thinking"}
             <div class="chip think">Thinking…</div>
           {:else if part.type === "toolCall"}
@@ -217,6 +228,9 @@
   .r-assistant,
   .r-tool {
     align-self: flex-start;
+  }
+  .text.md {
+    white-space: normal;
   }
   .text {
     white-space: pre-wrap;

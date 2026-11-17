@@ -73,7 +73,8 @@ export function composeInput(text: string): string {
   const t = text.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
   if (!t) return "";
   // Multi-line text goes in as one bracketed paste so newlines do not submit early.
-  return t.includes("\n") ? `\x1b[200~${t}\x1b[201~\r` : `${t}\r`;
+  // Enter is not included: the caller sends it on its own once the text is in.
+  return t.includes("\n") ? `\x1b[200~${t}\x1b[201~` : t;
 }
 
 
