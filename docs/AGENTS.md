@@ -273,12 +273,13 @@ Six more `claude` processes (four used the model, ten turns in all; one failed b
 - **StopFailure `[run]`**: `--model claude-nonexistent-9` gives
   `StopFailure{error:"model_not_found", last_assistant_message}`.
 - **Per-launch instructions `[run]`**: `--append-system-prompt-file <file>` (Claude quoted a
-  codeword from it) and `--add-dir <dir>` with `<dir>/.claude/skills/muster/SKILL.md` (the
-  skill was listed and read on demand). Neither writes to `~/.claude` or the repo.
-  `--add-dir` takes several values, so a prompt after it needs `--` (it was swallowed
-  without it `[run]`). `--add-dir` also grants file access to that directory. The system
-  prompt is recorded on the first request and reused on resume (`--help`).
-  `LaunchSpec::instructions` / `skills_dir`.
+  codeword from it) and `--plugin-dir <dir>` with `<dir>/.claude-plugin/plugin.json` and
+  `<dir>/skills/muster/SKILL.md` (the skill is listed as `muster:muster` and read on
+  demand). Neither writes to `~/.claude` or the repo. Skills used to come through
+  `--add-dir <dir>/.claude/skills/...`, but from 2.1.x Claude Code asks the user to trust
+  every `--add-dir` directory on each launch and resume; `--plugin-dir` asks nothing
+  `[run]`. The prompt still goes after `--`. The system prompt is recorded on the first
+  request and reused on resume (`--help`). `LaunchSpec::instructions` / `plugin_dir`.
 - **Other tools' PermissionRequest hooks `[run]`**: with an extra hook that denied
   immediately and Muster allowing after 2 s, the call was denied. With the extra hook
   allowing immediately and Muster set to deny after 2 s, the call ran within 0.5 s without

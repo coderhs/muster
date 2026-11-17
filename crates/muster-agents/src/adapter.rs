@@ -63,9 +63,10 @@ pub struct LaunchSpec {
     /// session environment (`MUSTER_HOOK_SECRET`); register the same value with
     /// [`crate::HookReceiver::set_card_secret`] before starting the session.
     pub hook_secret: Option<String>,
-    /// A directory of skills laid out as `<dir>/.claude/skills/<name>/SKILL.md`.
-    /// Claude Code: `--add-dir <dir>` (which also gives the agent file access to it).
-    pub skills_dir: Option<PathBuf>,
+    /// A plugin directory (`<dir>/.claude-plugin/plugin.json`, `<dir>/skills/<name>/SKILL.md`)
+    /// loaded for this session only. Claude Code: `--plugin-dir <dir>`. Unlike `--add-dir`,
+    /// it does not ask the user to trust the directory.
+    pub plugin_dir: Option<PathBuf>,
 }
 
 impl LaunchSpec {
@@ -79,7 +80,7 @@ impl LaunchSpec {
             extra_args: Vec::new(),
             program: None,
             instructions: None,
-            skills_dir: None,
+            plugin_dir: None,
             hook_secret: None,
         }
     }

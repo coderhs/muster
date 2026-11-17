@@ -469,12 +469,12 @@ pub async fn handoff(st: &Arc<State>, p: &CardHandoffParams) -> Result<Card> {
     Ok(st.decorate(card))
 }
 
-/// Paths of the generated agent guidance: a short instructions file and a skills
-/// directory (`<dir>/.claude/skills/muster/SKILL.md`). Both live under
+/// Paths of the generated agent guidance: a short instructions file and a plugin
+/// directory holding the `muster` skill. Both live under
 /// `$MUSTER_HOME/agents`; nothing is written to the user's agent config or the repo.
 pub struct Guidance {
     pub instructions: std::path::PathBuf,
-    pub skills_dir: std::path::PathBuf,
+    pub plugin_dir: std::path::PathBuf,
 }
 
 pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
@@ -494,8 +494,14 @@ pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
              `[Muster message from card ...]` come from another agent's card.\n"
         ),
     )?;
-    let skills_dir = dir.join("skill");
-    let skill = skills_dir.join(".claude/skills/muster");
+    let plugin_dir = dir.join("plugin");
+    let manifest = plugin_dir.join(".claude-plugin");
+    std::fs::create_dir_all(&manifest)?;
+    std::fs::write(
+        manifest.join("plugin.json"),
+        "{\"name\":\"muster\",\"description\":\"Work with other Muster cards\",\"version\":\"1.0.0\"}\n",
+    )?;
+    let skill = plugin_dir.join("skills/muster");
     std::fs::create_dir_all(&skill)?;
     std::fs::write(
         skill.join("SKILL.md"),
@@ -525,7 +531,7 @@ pub fn write_guidance(home: &Path, cli: &Path) -> std::io::Result<Guidance> {
              `[Muster message from card <id> ...]`; reply with `$MUSTER_CLI send <id> \"...\"`.\n"
         ),
     )?;
-    Ok(Guidance { instructions, skills_dir })
+    Ok(Guidance { instructions, plugin_dir })
 }
 
 #[cfg(test)]

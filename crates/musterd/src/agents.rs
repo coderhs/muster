@@ -350,7 +350,7 @@ impl Agents {
         }
         if let Some(g) = self.guidance.get() {
             spec.instructions = Some(g.instructions.clone());
-            spec.skills_dir = Some(g.skills_dir.clone());
+            spec.plugin_dir = Some(g.plugin_dir.clone());
         }
         let (cmd, sid) = match &card.agent_session_id {
             Some(sid) => (adapter.resume(&spec, sid), Some(sid.clone())),
