@@ -36,8 +36,8 @@ describe("agent helpers", () => {
   });
 
   it("composes terminal input, bracketing multi-line text", () => {
-    expect(composeInput("hello  \n")).toBe("hello\r");
-    expect(composeInput("a\nb")).toBe("\x1b[200~a\nb\x1b[201~\r");
+    expect(composeInput("hello  \n")).toBe("hello");
+    expect(composeInput("a\nb")).toBe("\x1b[200~a\nb\x1b[201~");
     expect(composeInput("   ")).toBe("");
   });
 });
