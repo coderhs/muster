@@ -164,6 +164,8 @@
     gap: 4px;
     font-weight: 600;
     color: var(--text-2);
+    background: none;
+    border: 0;
     padding: 2px 0;
     flex: none;
   }
@@ -189,6 +191,8 @@
   .again {
     margin-left: auto;
     color: var(--text-3);
+    background: none;
+    border: 0;
     display: inline-flex;
     padding: 3px;
     border-radius: 5px;
