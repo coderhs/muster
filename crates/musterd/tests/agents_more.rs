@@ -339,6 +339,9 @@ done
 async fn cursor_status_from_its_hooks() {
     let mut env = Env::new();
     env.env.push(("MUSTER_HOOK_BIN".into(), hook_bin().to_string_lossy().into_owned()));
+    // The skill is written only when the daemon finds the CLI; on a clean build it is not
+    // next to musterd yet.
+    env.env.push(("MUSTER_CLI_BIN".into(), cli_bin().to_string_lossy().into_owned()));
     install(&env, "cursor-agent", FAKE_CURSOR);
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../muster-agents/tests/fixtures/cursor/events-interactive.jsonl");
