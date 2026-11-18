@@ -5,7 +5,7 @@
 use std::io::Read;
 use std::path::Path;
 
-use muster_proto::{CardChangesResult, ChangeKind, ChangeScope, ChangedFile, ErrorCode};
+use muster_proto::{CardChangesResult, CardImageResult, ChangeKind, ChangeScope, ChangedFile, ErrorCode, ImageSide};
 use tokio::process::Command;
 
 use crate::util::{err, invalid, Result};
@@ -14,6 +14,9 @@ use crate::util::{err, invalid, Result};
 pub const MAX_FILES: usize = 500;
 /// At most this much of one file's diff is returned.
 pub const MAX_PATCH: usize = 512 * 1024;
+/// At most this much of each side of a changed image is returned (two sides, base64,
+/// stay under the WebSocket's 16 MB message limit).
+pub const MAX_IMAGE: u64 = 4 * 1024 * 1024;
 /// Branches tried as the base when the project folder does not name one.
 const DEFAULT_BASES: &[&str] = &["main", "master", "trunk", "develop"];
 /// At most this many branches are offered to compare against.
@@ -363,6 +366,96 @@ pub async fn diff(dir: &Path, project: &Path, opts: Options<'_>, path: &str) -> 
     Ok(cut(out))
 }
 
+/// The media type of an image the Changes tab can show, from the file's extension.
+pub fn image_type(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    })
+}
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn base64(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(B64[(n >> (18 - 6 * i)) as usize & 63] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+fn side(bytes: u64, read: impl FnOnce() -> Option<Vec<u8>>) -> Option<ImageSide> {
+    if bytes > MAX_IMAGE {
+        return Some(ImageSide { bytes, data: None });
+    }
+    read().map(|d| ImageSide { bytes: d.len() as u64, data: Some(base64(&d)) })
+}
+
+/// A file as committed in `rev`, without filters or text conversion.
+async fn blob(root: &Path, rev: &str, path: &str) -> Option<ImageSide> {
+    let spec = format!("{rev}:{path}");
+    let bytes: u64 = git_ok(root, &["cat-file", "-s", &spec]).await?.parse().ok()?;
+    if bytes > MAX_IMAGE {
+        return Some(ImageSide { bytes, data: None });
+    }
+    let (code, out, _) = run(root, &["cat-file", "blob", &spec]).await.ok()?;
+    side(bytes, || (code == 0).then_some(out))
+}
+
+/// A file on disk. A symbolic link is not followed, so nothing outside the repository
+/// is read.
+fn on_disk(root: &Path, path: &str) -> Option<ImageSide> {
+    let file = root.join(path);
+    let meta = std::fs::symlink_metadata(&file).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    side(meta.len(), || {
+        let mut data = Vec::new();
+        std::fs::File::open(&file).ok()?.take(MAX_IMAGE + 1).read_to_end(&mut data).ok()?;
+        (data.len() as u64 <= MAX_IMAGE).then_some(data)
+    })
+}
+
+/// A changed image of the folder `dir` before and after, for showing it instead of a
+/// diff. Only a path that `list` reports, with an image extension, is accepted.
+pub async fn image(dir: &Path, project: &Path, opts: Options<'_>, path: &str) -> Result<CardImageResult> {
+    let mime = image_type(path).ok_or_else(|| invalid(format!("{path} is not an image")))?;
+    let (changes, range) = listing(dir, project, opts).await?;
+    let file = changes
+        .files
+        .iter()
+        .find(|f| f.path == path)
+        .ok_or_else(|| err(ErrorCode::NotFound, format!("{path} has no changes")))?;
+    let root = Path::new(&changes.root);
+    let old = match file.kind {
+        ChangeKind::Added | ChangeKind::Untracked => None,
+        _ => blob(root, &range[0], file.old_path.as_deref().unwrap_or(path)).await,
+    };
+    let new = match (file.kind, range.get(1)) {
+        (ChangeKind::Deleted, _) => None,
+        (_, Some(head)) => blob(root, head, path).await,
+        (_, None) => on_disk(root, path),
+    };
+    Ok(CardImageResult { path: path.to_string(), mime: mime.to_string(), old, new })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +490,75 @@ mod tests {
         let mut all = vec!["-c", "user.email=t@t", "-c", "user.name=t"];
         all.extend_from_slice(args);
         git(dir, &all).await.unwrap();
+    }
+
+    #[test]
+    fn knows_image_types_and_encodes_base64() {
+        assert_eq!(image_type("a/Logo.PNG"), Some("image/png"));
+        assert_eq!(image_type("icon.svg"), Some("image/svg+xml"));
+        assert_eq!((image_type("png"), image_type("notes.txt")), (None, None));
+        let cases: [(&[u8], &str); 5] =
+            [(b"", ""), (b"f", "Zg=="), (b"fo", "Zm8="), (b"foo", "Zm9v"), (b"\xff\x00\xfe", "/wD+")];
+        for (data, want) in cases {
+            assert_eq!(base64(data), want);
+        }
+    }
+
+    #[tokio::test]
+    async fn returns_both_sides_of_a_changed_image() {
+        let root = std::env::temp_dir().join(format!("muster-img-{}", crate::util::new_id()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        g(&repo, &["init", "-q", "-b", "main"]).await;
+        std::fs::write(repo.join("logo.png"), b"old-png").unwrap();
+        std::fs::write(repo.join("gone.gif"), b"gif").unwrap();
+        std::fs::write(repo.join("notes.txt"), "a\n").unwrap();
+        g(&repo, &["add", "."]).await;
+        g(&repo, &["commit", "-q", "-m", "init"]).await;
+        let wt = crate::worktree::create(&repo, "feat/img").await.unwrap();
+
+        // Committed: logo changed, gif removed. Uncommitted: logo changed again, an SVG
+        // added, a text file changed and a link to a file outside the repository.
+        std::fs::write(wt.join("logo.png"), b"committed-png").unwrap();
+        std::fs::remove_file(wt.join("gone.gif")).unwrap();
+        g(&wt, &["commit", "-q", "-am", "art"]).await;
+        std::fs::write(wt.join("logo.png"), b"disk-png").unwrap();
+        std::fs::write(wt.join("new.svg"), "<svg/>").unwrap();
+        std::fs::write(wt.join("notes.txt"), "b\n").unwrap();
+        std::fs::write(root.join("secret.png"), b"secret").unwrap();
+        std::os::unix::fs::symlink(root.join("secret.png"), wt.join("link.png")).unwrap();
+
+        let data = |s: &Option<ImageSide>| s.as_ref().and_then(|s| s.data.clone());
+        let img = image(&wt, &repo, D, "logo.png").await.unwrap();
+        assert_eq!(img.mime, "image/png");
+        assert_eq!((data(&img.old), data(&img.new)), (Some(base64(b"old-png")), Some(base64(b"disk-png"))));
+        assert_eq!(img.new.as_ref().unwrap().bytes, 8);
+        let only = |scope| Options { base: None, scope };
+        let img = image(&wt, &repo, only(ChangeScope::Committed), "logo.png").await.unwrap();
+        assert_eq!((data(&img.old), data(&img.new)), (Some(base64(b"old-png")), Some(base64(b"committed-png"))));
+        let img = image(&wt, &repo, only(ChangeScope::Uncommitted), "logo.png").await.unwrap();
+        assert_eq!((data(&img.old), data(&img.new)), (Some(base64(b"committed-png")), Some(base64(b"disk-png"))));
+
+        let img = image(&wt, &repo, D, "gone.gif").await.unwrap();
+        assert_eq!((data(&img.old), img.new), (Some(base64(b"gif")), None));
+        let img = image(&wt, &repo, D, "new.svg").await.unwrap();
+        assert_eq!((img.old, data(&img.new), img.mime.as_str()), (None, Some(base64(b"<svg/>")), "image/svg+xml"));
+        // A link is listed but not followed.
+        let img = image(&wt, &repo, D, "link.png").await.unwrap();
+        assert_eq!((img.old, img.new), (None, None));
+
+        assert_eq!(image(&wt, &repo, D, "notes.txt").await.unwrap_err().code, ErrorCode::Invalid);
+        assert_eq!(image(&wt, &repo, D, "../secret.png").await.unwrap_err().code, ErrorCode::NotFound);
+        assert_eq!(
+            image(&wt, &repo, only(ChangeScope::Committed), "new.svg").await.unwrap_err().code,
+            ErrorCode::NotFound
+        );
+
+        // Too large: the size, without the file.
+        std::fs::write(wt.join("logo.png"), vec![0u8; MAX_IMAGE as usize + 1]).unwrap();
+        let img = image(&wt, &repo, D, "logo.png").await.unwrap();
+        assert_eq!(img.new, Some(ImageSide { bytes: MAX_IMAGE + 1, data: None }));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[tokio::test]

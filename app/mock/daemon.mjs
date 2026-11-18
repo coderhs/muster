@@ -305,6 +305,12 @@ function seed() {
   makeCard({ projectId: w.id, columnId: wtodo.id, title: "Audit image sizes", agentId: "codex" });
 }
 
+// The changed image in the mock's Changes tab: the app icon, before and after.
+const MOCK_ICONS = {
+  old: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect x="8" y="8" width="112" height="112" rx="24" fill="#3a3a3c"/><rect x="28" y="32" width="20" height="64" rx="4" fill="#8e8e93"/><rect x="54" y="32" width="20" height="44" rx="4" fill="#8e8e93"/><rect x="80" y="32" width="20" height="28" rx="4" fill="#8e8e93"/></svg>',
+  new: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect x="8" y="8" width="112" height="112" rx="24" fill="#0a84ff"/><rect x="28" y="32" width="20" height="64" rx="4" fill="#fff"/><rect x="54" y="32" width="20" height="44" rx="4" fill="#fff" opacity=".85"/><rect x="80" y="32" width="20" height="28" rx="4" fill="#30d158"/></svg>',
+};
+
 // ---------- phase 3: chat, approvals, usage ----------
 const transcripts = new Map(); // cardId -> ChatMessage[]
 const chatSubs = new Map(); // cardId -> Set<client>
@@ -971,6 +977,7 @@ const handlers = {
       { path: "src/board.ts", kind: "modified", additions: 4, deletions: 2, committed: true },
       { path: "src/columns/review.ts", kind: "untracked", additions: 3, deletions: 0, committed: false },
       { path: "docs/Old.md", kind: "deleted", additions: 0, deletions: 2, committed: true },
+      { path: "assets/icon.svg", kind: "modified", additions: 1, deletions: 1, committed: false },
     ].filter((f) => scope === "all" || f.committed === (scope === "committed")).map(({ committed, ...f }) => f);
     return { ...common, branch: c.branch, base: base ?? "main", commits: 2, uncommitted: true, files };
   },
@@ -980,9 +987,18 @@ const handlers = {
       "src/board.ts": "diff --git a/src/board.ts b/src/board.ts\n--- a/src/board.ts\n+++ b/src/board.ts\n@@ -10,6 +10,8 @@ export function board()\n const columns = load();\n-const cards = [];\n-render(columns);\n+const cards = loadCards();\n+if (!cards.length) showEmpty();\n+render(columns, cards);\n+track(\"board.open\");\n return columns;\n }\n",
       "src/columns/review.ts": "diff --git a/src/columns/review.ts b/src/columns/review.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/columns/review.ts\n@@ -0,0 +1,3 @@\n+export const REVIEW = \"review\";\n+export const label = \"Review\";\n+export default REVIEW;\n",
       "docs/Old.md": "diff --git a/docs/Old.md b/docs/Old.md\ndeleted file mode 100644\n--- a/docs/Old.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# Old\n-Gone.\n",
+      "assets/icon.svg": `diff --git a/assets/icon.svg b/assets/icon.svg\n--- a/assets/icon.svg\n+++ b/assets/icon.svg\n@@ -1 +1 @@\n-${MOCK_ICONS.old}\n+${MOCK_ICONS.new}\n`,
     };
     need(path in patches, "not_found", `${path} has no changes`);
     return { path, patch: patches[path] };
+  },
+  // Only the SVG in the mock's changes is an image.
+  "card.image": ({ id: cid, path }) => {
+    getCard(cid);
+    need(/\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i.test(path), "invalid", `${path} is not an image`);
+    need(path === "assets/icon.svg", "not_found", `${path} has no changes`);
+    const side = (svg) => ({ bytes: Buffer.byteLength(svg), data: Buffer.from(svg).toString("base64") });
+    return { path, mime: "image/svg+xml", old: side(MOCK_ICONS.old), new: side(MOCK_ICONS.new) };
   },
   "card.aiRename": ({ id: cid }) => {
     const c = getCard(cid);

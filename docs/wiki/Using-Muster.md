@@ -89,7 +89,10 @@ the files the card's folder changed and shows the diff of the one you pick.
   together, only the branch's commits, or only what is not committed yet (new files
   included). Both choices are remembered per card.
 - The header names the card's branch, how many commits it has, whether anything is
-  uncommitted, and the total lines added and removed. The list refreshes when the tab opens, when the agent
+  uncommitted, and the total lines added and removed.
+- An image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO or SVG) is shown as pictures, before and
+  after side by side, with each one's size in pixels and bytes. An SVG also shows its
+  text diff below. Pictures larger than 4 MB are not shown, only their size. The list refreshes when the tab opens, when the agent
   finishes a turn, and with the refresh button.
 
 Click a line of the diff to comment on it (⌘↩ saves, Esc cancels); click a comment to

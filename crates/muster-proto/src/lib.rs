@@ -969,6 +969,32 @@ pub struct CardDiffResult {
     pub truncated: bool,
 }
 
+/// One side of a changed image in `card.image`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSide {
+    /// The file's size.
+    pub bytes: u64,
+    /// The file, base64; absent when it is larger than the daemon returns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+}
+
+/// `card.image`: a changed image file before and after, to show instead of its diff.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardImageResult {
+    pub path: String,
+    /// The media type, from the file's extension.
+    pub mime: String,
+    /// The file at the base; absent when it was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old: Option<ImageSide>,
+    /// The file now; absent when it was deleted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new: Option<ImageSide>,
+}
+
 /// A time range for `project.summary`, in unix ms: `from` inclusive, `to` exclusive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1689,6 +1715,7 @@ pub enum Method {
     CardAiRename(IdParams),
     CardChanges(CardChangesParams),
     CardDiff(CardDiffParams),
+    CardImage(CardDiffParams),
     ProjectSummary(ProjectSummaryParams),
     ProjectSummarize(ProjectSummarizeParams),
     RemoteStatus(Empty),
@@ -1776,6 +1803,7 @@ methods! {
     CardAiRename => "card.aiRename",
     CardChanges => "card.changes",
     CardDiff => "card.diff",
+    CardImage => "card.image",
     ProjectSummary => "project.summary",
     ProjectSummarize => "project.summarize",
     RemoteStatus => "remote.status",

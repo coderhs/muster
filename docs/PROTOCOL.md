@@ -883,6 +883,7 @@ connection is refused. Both read git when asked; nothing is watched or cached.
 |---|---|---|
 | `card.changes` | `{id, base?: string, scope?: Scope}` | `CardChanges` |
 | `card.diff` | `{id, path, base?: string, scope?: Scope}` | `{path, patch, truncated?: bool}` |
+| `card.image` | `{id, path, base?: string, scope?: Scope}` | `CardImage` |
 
 ```
 Scope: "all" (default) | "committed" | "uncommitted"
@@ -890,6 +891,8 @@ CardChanges {root, branch?, base, defaultBase, branches: string[], scope, baseCo
              uncommitted, files: ChangedFile[], truncated?: bool}
 ChangedFile {path, oldPath?, kind, additions, deletions, binary?: bool}
              kind: "added" | "modified" | "deleted" | "renamed" | "untracked"
+CardImage   {path, mime, old?: ImageSide, new?: ImageSide}
+ImageSide   {bytes, data?: string}
 ```
 
 The changes are those of the repository the card's folder is in, measured from where
@@ -916,5 +919,17 @@ more. A folder that is not in a git repository is `invalid`.
 be one `card.changes` lists with the same `base` and `scope` (`not_found` otherwise). At most 512 KB is returned, cut at
 a line; `truncated` says there was more. Git runs with external diff, text conversion
 and fsmonitor off.
+
+`card.image` returns a changed image before and after, for showing the pictures instead
+of (or, for SVG, above) the diff. `path` must be one `card.changes` lists with the same
+`base` and `scope` (`not_found` otherwise) and end in `.png`, `.jpg`, `.jpeg`, `.gif`,
+`.webp`, `.avif`, `.bmp`, `.ico` or `.svg` (`invalid` otherwise); `mime` follows from
+the extension. `old` is the file at the start of the range (under `oldPath` for a
+rename) and is absent for an added or untracked file; `new` is the file at the end of
+the range, `HEAD` for `committed` and the file on disk otherwise, and is absent for a
+deleted file. `data` is the file, base64, and is left out when the file is larger than
+4 MB; `bytes` is always its size. Committed versions are read with `git cat-file`, so no
+filters or text conversion run. A file on disk that is a symbolic link is not followed,
+so its `new` is absent.
 
 Review comments are sent with `message.send`; there is no separate method.
