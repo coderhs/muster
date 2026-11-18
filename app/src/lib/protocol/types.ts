@@ -383,6 +383,7 @@ export interface Methods {
   "card.aiRename": [{ id: Id }, { card: Card }];
   "card.changes": [{ id: Id; base?: string; scope?: ChangeScope }, CardChanges];
   "card.diff": [{ id: Id; path: string; base?: string; scope?: ChangeScope }, { path: string; patch: string; truncated?: boolean }];
+  "card.image": [{ id: Id; path: string; base?: string; scope?: ChangeScope }, CardImage];
   "daemon.status": [Record<string, never>, DaemonStatus];
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
@@ -495,6 +496,20 @@ export interface ChangedFile {
   additions: number;
   deletions: number;
   binary?: boolean;
+}
+
+/** One side of a changed image; `data` (base64) is absent when the file is too large to send. */
+export interface ImageSide {
+  bytes: number;
+  data?: string;
+}
+
+/** A changed image before (`old`, absent when added) and after (`new`, absent when deleted). */
+export interface CardImage {
+  path: string;
+  mime: string;
+  old?: ImageSide;
+  new?: ImageSide;
 }
 
 export interface CardChanges {

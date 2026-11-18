@@ -1,11 +1,13 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { Card, CardChanges, ChangedFile, ChangeKind, ChangeScope } from "../protocol/types";
+  import type { Card, CardChanges, CardImage, ChangedFile, ChangeKind, ChangeScope } from "../protocol/types";
   import { errText } from "../protocol/client";
   import { useApp } from "../state/context";
   import { formatReview, lineRef, MAX_MESSAGE, parsePatch, refKey, type DiffLine, type Patch } from "../changes/patch";
   import { review } from "../changes/review.svelte";
+  import { isImage } from "../changes/image";
   import Icon from "./Icon.svelte";
+  import ImageDiff from "./ImageDiff.svelte";
   import Select from "./Select.svelte";
 
   let { card, active }: { card: Card; active: boolean } = $props();
@@ -60,6 +62,9 @@
   let patchTruncated = $state(false);
   let patchError = $state<string | null>(null);
   let patchLoading = $state(false);
+  // For an image file: the picture before and after, shown above (or instead of) the diff.
+  let image = $state.raw<CardImage | null>(null);
+  let imageError = $state<string | null>(null);
   let gen = 0;
 
   let editing = $state<string | null>(null);
@@ -104,9 +109,12 @@
     const path = selected;
     if (!path) {
       patch = null;
+      image = null;
       return;
     }
     patchLoading = true;
+    if (isImage(path)) void loadImage(g, path);
+    else image = imageError = null;
     try {
       const r = await app.client.request("card.diff", { ...view(), path });
       if (g !== gen || path !== selected) return;
@@ -122,11 +130,25 @@
     }
   }
 
+  async function loadImage(g: number, path: string) {
+    try {
+      const r = await app.client.request("card.image", { ...view(), path });
+      if (g !== gen || path !== selected) return;
+      image = r;
+      imageError = null;
+    } catch (e) {
+      if (g !== gen || path !== selected) return;
+      image = null;
+      imageError = errText(e);
+    }
+  }
+
   function select(f: ChangedFile) {
     if (f.path === selected) return;
     selected = f.path;
     editing = null;
     patch = null;
+    image = imageError = null;
     void loadPatch();
   }
 
@@ -291,15 +313,20 @@
             <span class="k k-{file.kind}">{KIND[file.kind].letter}</span>
             <span class="mono">{file.oldPath ? `${file.oldPath} → ` : ""}{file.path}</span>
             <span class="grow"></span>
-            <span class="dim small">Click a line to comment</span>
+            {#if patch?.hunks.length}<span class="dim small">Click a line to comment</span>{/if}
           </div>
+        {/if}
+        {#if image}
+          {#key image}<ImageDiff {image} />{/key}
+        {:else if imageError}
+          <div class="note err"><Icon name="warning" size={12} />{imageError}</div>
         {/if}
         {#if patchError}
           <div class="note err"><Icon name="warning" size={12} />{patchError}</div>
         {:else if patch}
           {#each patch.notes as n}<div class="note">{n}</div>{/each}
           {#if patch.binary}
-            <div class="note">Binary file; no text to show.</div>
+            {#if !image}<div class="note">Binary file; no text to show.</div>{/if}
           {:else if !patch.hunks.length && !patch.notes.length}
             <div class="note">No line changes{file?.kind === "untracked" ? " (empty file)" : ""}.</div>
           {/if}

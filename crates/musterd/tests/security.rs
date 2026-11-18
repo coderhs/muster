@@ -184,6 +184,7 @@ async fn card_tokens_are_scoped_to_their_card() {
         ("project.list", json!({})),
         ("card.changes", json!({"id": a})),
         ("card.diff", json!({"id": a, "path": "CLAUDE.md"})),
+        ("card.image", json!({"id": a, "path": "logo.png"})),
         ("docs.list", json!({"projectId": pid})),
         ("docs.read", json!({"projectId": pid, "path": "CLAUDE.md"})),
         ("docs.write", json!({"projectId": pid, "path": "CLAUDE.md", "content": "pwned"})),
