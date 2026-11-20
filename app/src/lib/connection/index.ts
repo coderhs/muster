@@ -38,6 +38,25 @@ export interface Platform {
   setIsland?: (on: boolean) => Promise<void>;
   /** "unavailable" | "unknown" | "requesting" | "granted" | "denied" */
   notifyStatus?: () => Promise<string>;
+  /** Editors the file viewer can open a file in, and the one chosen. */
+  listEditors?: () => Promise<EditorChoice[]>;
+  getEditor?: () => Promise<EditorPref>;
+  setEditor?: (pref: EditorPref) => Promise<void>;
+  /** Open a file on this Mac at a line, in the chosen editor. */
+  openInEditor?: (path: string, line?: number, col?: number) => Promise<void>;
+  revealFile?: (path: string) => Promise<void>;
+}
+
+export interface EditorChoice {
+  id: string;
+  label: string;
+}
+
+export interface EditorPref {
+  /** An editor id, "system" or "custom". */
+  editor: string;
+  /** For "custom": a command with {file}, {line} and {col}. */
+  command: string;
 }
 
 export function isTauri(): boolean {

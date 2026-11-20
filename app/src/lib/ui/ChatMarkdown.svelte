@@ -1,11 +1,13 @@
 <script lang="ts">
   // An agent's reply rendered as Markdown. The text is parsed into a tree and rendered
-  // as elements, never inserted as HTML. Only web links open (in the browser).
+  // as elements, never inserted as HTML. Web links open in the browser; file paths
+  // (`src/lib.rs:12`, in code, links or plain text) open in the file viewer.
   import { errText } from "../protocol/client";
   import { useApp } from "../state/context";
   import { parse, target, type Block, type Inline } from "./markdown";
+  import { findRefs, parseRef, type FileRef } from "./fileRef";
 
-  let { text }: { text: string } = $props();
+  let { text, cardId }: { text: string; cardId: string } = $props();
   const app = useApp();
   // A reply is never front matter: keep a leading rule from being read as one.
   const blocks = $derived(parse(text.startsWith("---") ? `\n${text}` : text));
@@ -14,10 +16,45 @@
     e.preventDefault();
     const t = target(href, "");
     if (t.kind === "web") void app.platform.openUrl(t.url).catch((err) => app.toast(`Could not open the link: ${errText(err)}`));
+    else {
+      const ref = linkRef(href);
+      if (ref) show(ref);
+    }
+  }
+
+  /** A link to a file (`src/a.rs`, `src/a.rs#L12`, `/abs/a.rs:3`), or null. */
+  function linkRef(href: string): FileRef | null {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("file:")) return null;
+    let h = href.replace(/^file:\/\//, "");
+    try {
+      h = decodeURI(h);
+    } catch {
+      /* as written */
+    }
+    return parseRef(h) ?? (h && !h.startsWith("#") ? { path: h.split("#")[0] } : null);
+  }
+
+  function show(ref: FileRef) {
+    app.fileView = { cardId, ...ref };
+  }
+
+  /** Plain text cut into text and file references. */
+  function pieces(s: string): ({ s: string } | { s: string; ref: FileRef })[] {
+    const found = findRefs(s);
+    if (!found.length) return [{ s }];
+    const out: ({ s: string } | { s: string; ref: FileRef })[] = [];
+    let at = 0;
+    for (const r of found) {
+      if (r.start > at) out.push({ s: s.slice(at, r.start) });
+      out.push({ s: s.slice(r.start, r.end), ref: { path: r.path, line: r.line, col: r.col } });
+      at = r.end;
+    }
+    if (at < s.length) out.push({ s: s.slice(at) });
+    return out;
   }
 </script>
 
-{#snippet inl(nodes: Inline[])}{#each nodes as n}{#if n.t === "text"}{n.s}{:else if n.t === "code"}<code>{n.s}</code>{:else if n.t === "strong"}<strong>{@render inl(n.c)}</strong>{:else if n.t === "em"}<em>{@render inl(n.c)}</em>{:else if n.t === "del"}<del>{@render inl(n.c)}</del>{:else if n.t === "link"}{#if target(n.href, "").kind === "web"}<a href={n.href} title={n.href} onclick={(e) => follow(e, n.href)}>{@render inl(n.c)}</a>{:else}<span class="ref" title={n.href}>{@render inl(n.c)}</span>{/if}{:else}<br />{/if}{/each}{/snippet}
+{#snippet inl(nodes: Inline[])}{#each nodes as n}{#if n.t === "text"}{#each pieces(n.s) as p}{#if "ref" in p}<button type="button" class="file" title="Show {p.s}" onclick={() => show(p.ref)}>{p.s}</button>{:else}{p.s}{/if}{/each}{:else if n.t === "code"}{@const ref = parseRef(n.s)}{#if ref}<button type="button" class="file code" title="Show {n.s}" onclick={() => show(ref)}><code>{n.s}</code></button>{:else}<code>{n.s}</code>{/if}{:else if n.t === "strong"}<strong>{@render inl(n.c)}</strong>{:else if n.t === "em"}<em>{@render inl(n.c)}</em>{:else if n.t === "del"}<del>{@render inl(n.c)}</del>{:else if n.t === "link"}{#if target(n.href, "").kind === "web" || linkRef(n.href)}<a href={n.href} title={n.href} onclick={(e) => follow(e, n.href)}>{@render inl(n.c)}</a>{:else}<span class="ref" title={n.href}>{@render inl(n.c)}</span>{/if}{:else}<br />{/if}{/each}{/snippet}
 
 {#snippet body(bs: Block[])}
   {#each bs as b}
@@ -96,6 +133,22 @@
   }
   .md a:hover {
     text-decoration: underline;
+  }
+  .file {
+    all: unset;
+    color: var(--accent);
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .file:hover {
+    text-decoration: underline;
+  }
+  .file:focus-visible {
+    outline: 2px solid var(--accent);
+    border-radius: 3px;
+  }
+  .file.code :global(code) {
+    color: var(--accent);
   }
   /* Inline code only; a block's code is styled under pre. */
   .md :not(pre) > code {

@@ -143,6 +143,7 @@
         // Claude Code binds Ctrl+Enter to "send now".
         extendedCtrlEnter: card.agentId === "claude",
         openUrl: (url) => void app.platform.openUrl(url).catch((e) => app.toast(`Could not open the link: ${e instanceof Error ? e.message : e}`)),
+        openFile: (ref) => (app.fileView = { cardId, ...ref }),
       });
       term.focus();
     });
@@ -267,7 +268,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (deleting || killing || app.searchOpen) return;
+    if (deleting || killing || app.searchOpen || app.fileView) return;
     const inTerm = !!(e.target as HTMLElement)?.closest?.(".xterm");
     if (e.key === "w" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
       e.preventDefault();

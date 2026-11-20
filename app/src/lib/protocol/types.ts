@@ -119,6 +119,8 @@ export interface Settings {
   clipboardPassthrough?: boolean;
   /** Stop a session idle this many minutes, leaving a card to resume. 0 = never. */
   idleStopMinutes?: number;
+  /** The file viewer may open any file on the Mac, not only the card's folder and project. */
+  anyFilePath?: boolean;
 }
 
 /** A phone, tablet or computer paired for remote access. */
@@ -384,6 +386,7 @@ export interface Methods {
   "card.changes": [{ id: Id; base?: string; scope?: ChangeScope }, CardChanges];
   "card.diff": [{ id: Id; path: string; base?: string; scope?: ChangeScope }, { path: string; patch: string; truncated?: boolean }];
   "card.image": [{ id: Id; path: string; base?: string; scope?: ChangeScope }, CardImage];
+  "card.file": [{ id: Id; path: string }, CardFile];
   "daemon.status": [Record<string, never>, DaemonStatus];
   "comment.list": [{ cardId: Id }, { comments: Comment[] }];
   "comment.add": [{ cardId: Id; text: string }, { comment: Comment }];
@@ -505,6 +508,18 @@ export interface ImageSide {
 }
 
 /** A changed image before (`old`, absent when added) and after (`new`, absent when deleted). */
+/** A file named in a card's terminal or chat (`card.file`). */
+export interface CardFile {
+  /** Relative to the card's folder or project when inside one, otherwise absolute. */
+  path: string;
+  absPath: string;
+  /** Empty for a binary file. */
+  content: string;
+  size: number;
+  truncated?: boolean;
+  binary?: boolean;
+}
+
 export interface CardImage {
   path: string;
   mime: string;

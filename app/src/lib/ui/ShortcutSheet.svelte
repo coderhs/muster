@@ -45,6 +45,15 @@
         ["⌘K", "Clear the terminal (while it has focus)"],
         ["⌘← ⌘→  ⌥← ⌥→", "Line start / end, word left / right"],
         ["⇧↵", "New line without sending (agents)"],
+        ["⌘-click a path", "Show the file at that line (a plain click in the chat)"],
+      ],
+    },
+    {
+      title: "File viewer",
+      keys: [
+        ["⌘F  ↵  ⇧↵", "Find in the file / next / previous"],
+        ["⌘O", "Open in your editor (Settings → Files)"],
+        ["Esc", "Close"],
       ],
     },
     {

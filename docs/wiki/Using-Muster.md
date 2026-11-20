@@ -73,6 +73,23 @@ prompt is not sent when resuming.
   Code cards with a running session that is between turns; type a title yourself at
   any time to keep your own.
 
+## Looking at a file
+
+When an agent names a file, such as `crates/muster-core/src/store.rs:932`, ⌘-click it
+in the terminal, or click it in the Chat tab, to see the file at that line without
+leaving Muster. Paths with `:line`, `:line:col`, `#L12` or `(line 12)` jump to the line;
+paths are looked up in the card's folder first, then the project's.
+
+The viewer has syntax colours, ⌘F to find in the file, and Esc to close. **Open in
+editor** (⌘O) opens the file at the same line in the editor chosen in Settings →
+Files (Cursor, VS Code, Zed, Sublime Text, Xcode, JetBrains IDEs and more, the default
+app, or a command of your own with `{file}`, `{line}` and `{col}`). **Reveal in Finder**
+and **Copy path** are next to it.
+
+Only files in the card's folder and its project open, unless **Show any file on this
+Mac** is switched on in Settings → Files. A paired phone or tablet can always only see
+files in the card's folder and project, and has no editor button.
+
 ## Reviewing changes
 
 The **Changes** tab of a card (next to Terminal and Chat; ⌃⇥ steps through them) lists
@@ -230,6 +247,8 @@ Also shown:
 
 - Terminal font, weight, size and line height.
 - Whether programs in cards may copy to the Mac clipboard (off by default).
+- Files: the editor that **Open in editor** uses, and whether the file viewer may show
+  any file on the Mac (off by default: only the card's folder and project).
 - Quiet time before a hook-less agent is treated as waiting.
 - Stopping sessions that have been idle (off by default; see below).
 - Per project: name, colour, worktree setup script.

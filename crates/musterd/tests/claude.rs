@@ -801,7 +801,8 @@ async fn keep_awake_follows_running_cards_and_settings() {
             "autoRestore": false,
             "silenceSeconds": 5,
             "clipboardPassthrough": false,
-            "idleStopMinutes": 0
+            "idleStopMinutes": 0,
+            "anyFilePath": false
         })
     );
     assert!(!assertion_held(dpid));
