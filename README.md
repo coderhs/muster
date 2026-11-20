@@ -35,6 +35,22 @@ the agent's real terminal, or the conversation as readable messages in the **Cha
 
 ![A card waiting for permission to run a command, with the conversation in the Chat tab](docs/screenshots/approval.png)
 
+### Look at a file, or open it in your editor
+
+When an agent names a file, such as `src/import/dedupe.ts:14`, ⌘-click it in the
+terminal or click it in the Chat tab. The file opens over the card at that line, with
+syntax colours and ⌘F to find. Bare names like `checkout_controller.rb` are searched for
+in the card's folder and project.
+
+- **Open in editor** (⌘O) opens the file at the same line in the editor you choose in
+  Settings → Files: Cursor, VS Code, Zed, Sublime Text, Xcode, JetBrains IDEs, the
+  default app, or a command of your own.
+- **Reveal in Finder** and **Copy path** sit next to it.
+- Only files in the card's folder and project open, unless you allow any file in
+  Settings. A paired phone or tablet is always limited to those two folders.
+
+![The file viewer: a file an agent mentioned, opened at its line, with Open in Cursor](docs/screenshots/file-viewer.png)
+
 ### Review the agent's changes
 
 The **Changes** tab shows what the agent changed in the card's folder, without leaving
