@@ -13,6 +13,33 @@ opened from a phone or tablet over your own Tailscale network.
 
 The screenshots show a made-up demo project.
 
+## Install
+
+Muster is in early pre-release. You need an Apple silicon Mac (M1 or later) with macOS
+12 or newer.
+
+1. Install tmux, which Muster runs its sessions in, and the agent CLIs you want to use
+   (Claude Code, Codex, Cursor, ...):
+   ```sh
+   brew install tmux
+   ```
+2. Download `Muster-<commit>-macos-arm64.zip` from the newest release on the
+   [Releases page](https://github.com/coderhs/muster/releases), unzip it and drag
+   Muster.app into Applications.
+3. The app is not signed with an Apple Developer ID, so macOS blocks it the first time.
+   Allow it once:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Muster.app
+   ```
+   Or open Muster, dismiss the warning, then System Settings → Privacy & Security →
+   Open Anyway.
+4. Open Muster and add a project folder.
+
+Your data stays on your Mac, in `~/Library/Application Support/Muster`. To update,
+download the new release, replace the app, quit Muster and run `pkill -x musterd`, then
+open it again; running sessions survive. To build it yourself, see
+[Build from source](#build-from-source).
+
 ## Features
 
 ### A board of agent sessions
@@ -26,6 +53,8 @@ is, its git branch, and how much memory and CPU its session uses.
 - Tick "New git worktree" and the agent works on its own branch beside the project. A
   per-project setup script can install dependencies in the new worktree first.
 - Resume an earlier agent session by its id.
+- ⌘K (or ⌘F) searches cards across all projects by title, branch, prompt, notes, model
+  or agent. With an empty search it lists each project's recently active cards.
 
 ### Answer agents without opening the terminal
 
@@ -136,7 +165,7 @@ Turn on Settings → Remote access and pair a device with a QR code. The daemon 
 same app over `tailscale serve`, so it works away from home and opens nothing to the
 internet. See [Remote access](docs/REMOTE-ACCESS.md).
 
-## Quick start
+## Build from source
 
 Requirements: macOS 12+, [mise](https://mise.jdx.dev), tmux (`brew install tmux`),
 Xcode Command Line Tools.
