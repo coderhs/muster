@@ -35,12 +35,58 @@ describe("pathsForPaste", () => {
 });
 
 describe("file references across wrapped rows", () => {
-  it("maps a reference that wraps onto the next row to cells", async () => {
-    const { refsInRows } = await import("./links");
+  const row = (text: string, cols: number, wrapped = false) => ({
+    text: text.padEnd(cols),
+    cells: [...text.padEnd(cols)].map((_, i) => i),
+    wrapped,
+  });
+
+  it("maps a reference the terminal wrapped onto the next row to cells", async () => {
+    const { refsAround } = await import("./links");
     const { findRefs } = await import("../ui/fileRef");
     // 10 columns: "see src/ab" + "c.rs:12 ok"
-    const out = refsInRows(["see src/ab", "c.rs:12 ok"], 10, 4, (t) => findRefs(t, true));
+    const rows = [row("see src/ab", 10), row("c.rs:12 ok", 10, true)];
+    const out = refsAround(rows, 1, 10, 4, (t) => findRefs(t, true));
     expect(out.map((o) => [o.ref.path, o.ref.line])).toEqual([["src/abc.rs", 12]]);
     expect(out[0].range).toEqual({ start: { x: 5, y: 5 }, end: { x: 7, y: 6 } });
+  });
+
+  it("joins a path an agent broke onto an indented next line", async () => {
+    const { refsAround } = await import("./links");
+    const { findRefs } = await import("../ui/fileRef");
+    const rows = [
+      row("⏺ Done.", 40),
+      row("  Console script: /private/tmp/c04b/scra", 40),
+      row("  tchpad/resend_failed_emails.rb", 40),
+      row("  Next line of text", 40),
+    ];
+    for (const at of [1, 2]) {
+      const out = refsAround(rows, at, 40, 0, (t) => findRefs(t, true));
+      expect(out.map((o) => o.ref.path)).toEqual(["/private/tmp/c04b/scratchpad/resend_failed_emails.rb"]);
+      expect(out[0].range).toEqual({ start: { x: 19, y: 2 }, end: { x: 32, y: 3 } });
+    }
+  });
+
+  it("joins the real Claude Code output at 109 columns", async () => {
+    const { refsAround } = await import("./links");
+    const { findRefs } = await import("../ui/fileRef");
+    const rows = [
+      row("   Console script: /private/tmp/claude-501/-Users-user-work-demo-acme-store-front/c04b68ef-3453-49b8-9e0d-e7a", 109),
+      row("   5c6cf8b8f/scratchpad/resend_failed_emails.rb", 109),
+    ];
+    const out = refsAround(rows, 1, 109, 0, (t) => findRefs(t, true));
+    expect(out.map((o) => o.ref.path)).toEqual([
+      "/private/tmp/claude-501/-Users-user-work-demo-acme-store-front/c04b68ef-3453-49b8-9e0d-e7a5c6cf8b8f/scratchpad/resend_failed_emails.rb",
+    ]);
+  });
+
+  it("leaves short lines and lines not ending in a path apart", async () => {
+    const { refsAround } = await import("./links");
+    const { findRefs } = await import("../ui/fileRef");
+    const find = (t: string) => findRefs(t, true);
+    const short = [row("  Edited src/a.rs", 40), row("  Updated the tests", 40)];
+    expect(refsAround(short, 0, 40, 0, find).map((o) => o.ref.path)).toEqual(["src/a.rs"]);
+    const words = [row("  this sentence runs right up to the edge", 40), row("  src/b.rs:3", 40)];
+    expect(refsAround(words, 1, 40, 0, find).map((o) => o.ref.path)).toEqual(["src/b.rs"]);
   });
 });

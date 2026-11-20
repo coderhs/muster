@@ -10,7 +10,7 @@ import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
 import { CTRL_ENTER, isCtrlEnter, isNewlineChord } from "./keys";
-import { isOpenChord, pathsForPaste, refsInRows, webUrl } from "./links";
+import { isOpenChord, pathsForPaste, refsAround, webUrl, type Row } from "./links";
 import { findRefs, type FileRef } from "../ui/fileRef";
 
 const DARK: ITheme = {
@@ -121,14 +121,25 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     const openFile = cb.openFile;
     term.registerLinkProvider({
       provideLinks(y, callback) {
+        // The rows around this one, each with the cell of every character (wide ones
+        // take two cells), so a path broken across rows can be found and drawn.
         const buf = term.buffer.active;
-        let first = y - 1;
-        while (first > 0 && buf.getLine(first)?.isWrapped) first--;
-        let last = y - 1;
-        while (last - first < 20 && buf.getLine(last + 1)?.isWrapped) last++;
-        const rows: string[] = [];
-        for (let i = first; i <= last; i++) rows.push(buf.getLine(i)?.translateToString(i === last) ?? "");
-        const found = refsInRows(rows, term.cols, first, (t) => findRefs(t, true)).filter(
+        const from = Math.max(0, y - 1 - 20);
+        const to = Math.min(buf.length - 1, y - 1 + 20);
+        const rows: Row[] = [];
+        for (let i = from; i <= to; i++) {
+          const line = buf.getLine(i);
+          const row: Row = { text: "", cells: [], wrapped: !!line?.isWrapped };
+          for (let x = 0; line && x < term.cols; x++) {
+            const cell = line.getCell(x);
+            if (!cell || cell.getWidth() === 0) continue;
+            const ch = cell.getChars() || " ";
+            row.text += ch;
+            for (let k = 0; k < ch.length; k++) row.cells.push(x);
+          }
+          rows.push(row);
+        }
+        const found = refsAround(rows, y - 1 - from, term.cols, from, (t) => findRefs(t, true)).filter(
           (f) => f.range.start.y <= y && f.range.end.y >= y,
         );
         callback(
