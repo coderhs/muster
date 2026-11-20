@@ -945,7 +945,9 @@ CardFile {path, absPath, content, size, truncated?: bool, binary?: bool}
 ```
 
 `path` is what the user clicked: relative (tried in the card's folder, then the
-project's), absolute, `~/...` or `file://...`. Links are followed and the real place is
+project's; if neither has it at the top, each is searched in turn for files whose path
+ends with it, skipping hidden folders, `node_modules`, `target`, `vendor` and the like,
+without following links; several matches are an `invalid` error naming them), absolute, `~/...` or `file://...`. Links are followed and the real place is
 checked: it must be inside the card's folder or the project, unless `Settings` has
 `anyFilePath` (default `false`) and the caller is the app or CLI with the master token.
 A paired device is always held to the two folders and may not change `anyFilePath`;

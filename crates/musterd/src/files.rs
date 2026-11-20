@@ -47,12 +47,77 @@ pub fn resolve(raw: &str, roots: &[PathBuf], any: bool) -> Result<(PathBuf, Stri
         }
         outside = true;
     }
+    if !outside && !path.is_absolute() {
+        if let Some(found) = search(&path, &roots)? {
+            return Ok(found);
+        }
+    }
     if outside {
         return Err(invalid(format!(
             "{raw} is outside this card's folder and project (Settings can allow any file on the Mac)"
         )));
     }
     Err(not_found("file", raw))
+}
+
+/// Folders not looked in when searching for a file by name.
+const SKIP: &[&str] = &["node_modules", "target", "vendor", "dist", "build", "tmp", "log", "coverage", "Pods", "DerivedData"];
+/// At most this many entries are looked at in one search.
+const MAX_SEARCH: usize = 200_000;
+
+/// A relative path that is not at a root's top, such as `checkout_controller.rb` for
+/// `app/controllers/checkout_controller.rb`: the roots are searched for files whose path
+/// ends with it, the card's folder first (a worktree has the project's files too). One
+/// match is the file; several are an error naming them.
+fn search(rel: &Path, roots: &[PathBuf]) -> Result<Option<(PathBuf, String)>> {
+    use std::path::Component;
+    if !rel.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
+        return Ok(None);
+    }
+    let rel: PathBuf = rel.components().filter(|c| matches!(c, Component::Normal(_))).collect();
+    let Some(name) = rel.file_name() else { return Ok(None) };
+    let mut found: Vec<(PathBuf, String)> = Vec::new();
+    let mut seen = 0usize;
+    for root in roots {
+        if !found.is_empty() {
+            break;
+        }
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for e in entries.flatten() {
+                seen += 1;
+                if seen > MAX_SEARCH {
+                    break;
+                }
+                // Links are not followed, so a search stays inside the root.
+                let Ok(kind) = e.file_type() else { continue };
+                let fname = e.file_name();
+                if kind.is_dir() {
+                    let n = fname.to_string_lossy();
+                    if !n.starts_with('.') && !SKIP.contains(&n.as_ref()) {
+                        stack.push(e.path());
+                    }
+                } else if kind.is_file() && fname == name {
+                    let p = e.path();
+                    if p.ends_with(&rel) && !found.iter().any(|(f, _)| *f == p) {
+                        let shown = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().into_owned();
+                        found.push((p, shown));
+                    }
+                }
+            }
+        }
+    }
+    match found.len() {
+        0 => Ok(None),
+        1 => Ok(found.pop()),
+        n => {
+            found.sort_by(|a, b| a.1.cmp(&b.1));
+            let list: Vec<&str> = found.iter().take(5).map(|(_, s)| s.as_str()).collect();
+            let more = if n > 5 { format!(" and {} more", n - 5) } else { String::new() };
+            Err(invalid(format!("{n} files match {}: {}{more}", rel.display(), list.join(", "))))
+        }
+    }
 }
 
 /// Reads up to [`MAX_BYTES`] of `file`.
@@ -117,6 +182,34 @@ mod tests {
         let (f, shown) = resolve(&format!("file://{}", abs.display()), &roots, false).unwrap();
         assert_eq!((f, shown.as_str()), (abs, "src/lib.rs"));
         assert!(resolve("src/missing.rs", &roots, false).unwrap_err().msg.contains("not found"));
+    }
+
+    #[test]
+    fn a_name_not_at_the_top_is_searched_for() {
+        let (_t, work, project, outside) = tree();
+        std::fs::create_dir_all(project.join("app/controllers")).unwrap();
+        std::fs::create_dir_all(project.join("node_modules/x")).unwrap();
+        std::fs::write(project.join("app/controllers/checkout_controller.rb"), "class C\nend\n").unwrap();
+        std::fs::write(project.join("node_modules/x/checkout_controller.rb"), "no\n").unwrap();
+        std::fs::write(outside.join("only_outside.rb"), "no\n").unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("linked")).unwrap();
+        let roots = [work.clone(), project.clone()];
+        let (f, shown) = resolve("checkout_controller.rb", &roots, false).unwrap();
+        assert_eq!((f, shown.as_str()), (project.join("app/controllers/checkout_controller.rb"), "app/controllers/checkout_controller.rb"));
+        let (_, shown) = resolve("controllers/checkout_controller.rb", &roots, false).unwrap();
+        assert_eq!(shown, "app/controllers/checkout_controller.rb");
+        // The card's folder wins over the project.
+        let (f, _) = resolve("lib.rs", &roots, false).unwrap();
+        assert_eq!(f, work.join("src/lib.rs"));
+        // Two matches in one folder: say which, rather than guess.
+        std::fs::create_dir_all(project.join("app/models")).unwrap();
+        std::fs::write(project.join("app/models/user.rb"), "\n").unwrap();
+        std::fs::write(project.join("src/user.rb"), "\n").unwrap();
+        let e = resolve("user.rb", &roots, false).unwrap_err();
+        assert!(e.msg.contains("2 files match user.rb: app/models/user.rb, src/user.rb"), "{}", e.msg);
+        // Links out of the roots are not followed, and `..` is never searched.
+        assert!(resolve("only_outside.rb", &roots, false).unwrap_err().msg.contains("not found"));
+        assert!(resolve("../x/checkout_controller.rb", &roots, false).unwrap_err().msg.contains("not found"));
     }
 
     #[test]

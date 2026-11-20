@@ -78,7 +78,9 @@ prompt is not sent when resuming.
 When an agent names a file, such as `crates/muster-core/src/store.rs:932`, ⌘-click it
 in the terminal, or click it in the Chat tab, to see the file at that line without
 leaving Muster. Paths with `:line`, `:line:col`, `#L12` or `(line 12)` jump to the line;
-paths are looked up in the card's folder first, then the project's.
+paths are looked up in the card's folder first, then the project's. A bare name such as
+`checkout_controller.rb` is searched for inside them; if several files match, the viewer
+lists them.
 
 The viewer has syntax colours, ⌘F to find in the file, and Esc to close. **Open in
 editor** (⌘O) opens the file at the same line in the editor chosen in Settings →
