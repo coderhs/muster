@@ -61,7 +61,8 @@ pub fn resolve(raw: &str, roots: &[PathBuf], any: bool) -> Result<(PathBuf, Stri
 }
 
 /// Folders not looked in when searching for a file by name.
-const SKIP: &[&str] = &["node_modules", "target", "vendor", "dist", "build", "tmp", "log", "coverage", "Pods", "DerivedData"];
+const SKIP: &[&str] =
+    &["node_modules", "target", "vendor", "dist", "build", "tmp", "log", "coverage", "Pods", "DerivedData"];
 /// At most this many entries are looked at in one search.
 const MAX_SEARCH: usize = 200_000;
 
@@ -195,7 +196,10 @@ mod tests {
         std::os::unix::fs::symlink(&outside, project.join("linked")).unwrap();
         let roots = [work.clone(), project.clone()];
         let (f, shown) = resolve("checkout_controller.rb", &roots, false).unwrap();
-        assert_eq!((f, shown.as_str()), (project.join("app/controllers/checkout_controller.rb"), "app/controllers/checkout_controller.rb"));
+        assert_eq!(
+            (f, shown.as_str()),
+            (project.join("app/controllers/checkout_controller.rb"), "app/controllers/checkout_controller.rb")
+        );
         let (_, shown) = resolve("controllers/checkout_controller.rb", &roots, false).unwrap();
         assert_eq!(shown, "app/controllers/checkout_controller.rb");
         // The card's folder wins over the project.
