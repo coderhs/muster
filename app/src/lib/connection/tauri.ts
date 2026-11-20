@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppInfo, Platform } from "./index";
+import type { AppInfo, EditorChoice, EditorPref, Platform } from "./index";
 
 interface DaemonInfo {
   url: string;
@@ -24,6 +24,11 @@ export function tauriPlatform(): Platform {
     getIsland: () => invoke<{ enabled: boolean; available: boolean }>("get_island"),
     setIsland: (on) => invoke<void>("set_island", { on }),
     notifyStatus: () => invoke<string>("notify_status"),
+    listEditors: () => invoke<EditorChoice[]>("list_editors"),
+    getEditor: () => invoke<EditorPref>("get_editor"),
+    setEditor: (p) => invoke<void>("set_editor", { editor: p.editor, command: p.command }),
+    openInEditor: (path, line, col) => invoke<void>("open_in_editor", { path, line: line ?? null, col: col ?? null }),
+    revealFile: (path) => invoke<void>("reveal_file", { path }),
     async onOpenCard(cb) {
       const { listen } = await import("@tauri-apps/api/event");
       await listen<string>("open-card", (e) => cb(e.payload));

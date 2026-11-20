@@ -144,6 +144,36 @@ async fn pair_connect_and_revoke() {
     // ...and its token is useless on the local port.
     assert!(Client::connect_token(port, &dtoken).await.is_err());
 
+    // The file viewer: inside the card's project for both; a file elsewhere on the Mac
+    // only for the app, and only once the user allows it there.
+    std::fs::create_dir_all(env.root.join("project/src")).unwrap();
+    std::fs::write(env.root.join("project/src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(env.root.join("elsewhere.txt"), "private\n").unwrap();
+    let pid = c.call("project.add", json!({"path": env.root.join("project")})).await.unwrap()["project"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let col =
+        c.call("board.get", json!({"projectId": pid})).await.unwrap()["columns"][0]["id"].as_str().unwrap().to_string();
+    let card = c.call("card.create", json!({"projectId": pid, "columnId": col, "agentId": "shell"})).await.unwrap()
+        ["card"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let inside = json!({"id": card, "path": "src/main.rs"});
+    let outside = json!({"id": card, "path": env.root.join("elsewhere.txt")});
+    for client in [&mut c, &mut d] {
+        let f = client.call("card.file", inside.clone()).await.unwrap();
+        assert_eq!((f["path"].as_str(), f["content"].as_str()), (Some("src/main.rs"), Some("fn main() {}\n")));
+        assert_eq!(client.call("card.file", outside.clone()).await.unwrap_err().code, ErrorCode::Invalid);
+    }
+    let e = d.call("settings.update", json!({"anyFilePath": true})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Unauthorized);
+    let s = c.call("settings.update", json!({"anyFilePath": true})).await.unwrap();
+    assert_eq!(s["settings"]["anyFilePath"], true);
+    assert_eq!(c.call("card.file", outside.clone()).await.unwrap()["content"], "private\n");
+    assert_eq!(d.call("card.file", outside.clone()).await.unwrap_err().code, ErrorCode::Invalid);
+
     let st = c.call("remote.status", json!({})).await.unwrap();
     let devices = st["devices"].as_array().unwrap();
     assert_eq!(devices.len(), 1);

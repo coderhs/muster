@@ -10,7 +10,8 @@ import type { MusterClient } from "../protocol/client";
 import { errText } from "../protocol/client";
 import { getTermPrefs, onTermPrefs } from "./prefs";
 import { CTRL_ENTER, isCtrlEnter, isNewlineChord } from "./keys";
-import { isOpenChord, pathsForPaste, webUrl } from "./links";
+import { isOpenChord, pathsForPaste, refsInRows, webUrl } from "./links";
+import { findRefs, type FileRef } from "../ui/fileRef";
 
 const DARK: ITheme = {
   background: "#18181a",
@@ -68,6 +69,8 @@ export interface TermCallbacks {
   onSize?: (cols: number, rows: number) => void;
   /** Open a web link the user Cmd+clicked. Already checked to be http(s). */
   openUrl?: (url: string) => void;
+  /** Show a file path the user Cmd+clicked (`src/a.rs:12`) in the file viewer. */
+  openFile?: (ref: FileRef) => void;
   /**
    * Send Ctrl+Enter in the extended key encoding. Only for programs known to read it:
    * a plain shell would print it as text.
@@ -113,6 +116,36 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
   term.loadAddon(fit);
   // URLs that appear as plain text.
   term.loadAddon(new WebLinksAddon(openLink));
+  // File paths, such as `src/lib.rs:12` in an agent's reply or a compiler error.
+  if (cb.openFile) {
+    const openFile = cb.openFile;
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const buf = term.buffer.active;
+        let first = y - 1;
+        while (first > 0 && buf.getLine(first)?.isWrapped) first--;
+        let last = y - 1;
+        while (last - first < 20 && buf.getLine(last + 1)?.isWrapped) last++;
+        const rows: string[] = [];
+        for (let i = first; i <= last; i++) rows.push(buf.getLine(i)?.translateToString(i === last) ?? "");
+        const found = refsInRows(rows, term.cols, first, (t) => findRefs(t, true)).filter(
+          (f) => f.range.start.y <= y && f.range.end.y >= y,
+        );
+        callback(
+          found.length
+            ? found.map(({ ref, range }) => ({
+                range,
+                text: ref.path,
+                decorations: { pointerCursor: true, underline: true },
+                activate: (ev: MouseEvent) => {
+                  if (isOpenChord(ev, isMac())) openFile({ path: ref.path, line: ref.line, col: ref.col });
+                },
+              }))
+            : undefined,
+        );
+      },
+    });
+  }
   term.open(host);
   // The GPU renderer keeps every cell on an exact grid and draws box and block
   // characters itself, as a native terminal does. Without WebGL the DOM renderer stays.

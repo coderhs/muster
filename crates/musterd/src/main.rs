@@ -4,6 +4,7 @@ mod accounts;
 mod agents;
 mod context;
 mod docs;
+mod files;
 mod idle;
 mod launchd;
 mod remote;

@@ -1,4 +1,5 @@
 mod daemon;
+mod editor;
 mod island;
 mod notify;
 mod tray;
@@ -110,6 +111,43 @@ fn set_notify<R: Runtime>(app: AppHandle<R>, flag: tauri::State<tray::NotifyFlag
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     std::fs::write(&path, serde_json::json!({ "enabled": on }).to_string()).map_err(|e| e.to_string())
+}
+
+fn editor_file<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("editor.json"))
+}
+
+/// The editors that can open a file from the file viewer.
+#[tauri::command]
+fn list_editors() -> Vec<editor::EditorChoice> {
+    editor::installed()
+}
+
+#[tauri::command]
+fn get_editor<R: Runtime>(app: AppHandle<R>) -> editor::EditorPref {
+    editor::resolved(editor::read(editor_file(&app)))
+}
+
+#[tauri::command]
+fn set_editor<R: Runtime>(app: AppHandle<R>, editor: String, command: String) -> Result<(), String> {
+    editor::write(editor_file(&app), &editor::EditorPref { editor, command })
+}
+
+/// Opens a file (an absolute path from the daemon's `card.file`) at a line, in the
+/// editor chosen in Settings.
+#[tauri::command]
+fn open_in_editor<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    line: Option<u32>,
+    col: Option<u32>,
+) -> Result<(), String> {
+    editor::open_file(&editor::resolved(editor::read(editor_file(&app))), &path, line, col)
+}
+
+#[tauri::command]
+fn reveal_file(path: String) -> Result<(), String> {
+    editor::reveal(&path)
 }
 
 fn island_file<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
@@ -279,7 +317,12 @@ pub fn run() {
             set_notify,
             notify_status,
             get_island,
-            set_island
+            set_island,
+            list_editors,
+            get_editor,
+            set_editor,
+            open_in_editor,
+            reveal_file
         ])
         .setup(|app| {
             let enabled = read_enabled(notify_file(app.handle()));

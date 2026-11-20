@@ -15,6 +15,7 @@
   import CardModal from "./lib/ui/CardModal.svelte";
   import NewCardDialog from "./lib/ui/NewCardDialog.svelte";
   import CardSearch from "./lib/ui/CardSearch.svelte";
+  import FileViewer from "./lib/ui/FileViewer.svelte";
   import Icon from "./lib/ui/Icon.svelte";
   import { isTauri } from "./lib/connection";
 
@@ -70,6 +71,7 @@
     // Cmd+F or Cmd+K opens the card search. In the terminal Cmd+K clears the screen
     // instead, as in Terminal.app.
     const plainCmd = e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey;
+    if (app.fileView) return;
     if (plainCmd && (e.key === "f" || (e.key === "k" && !(e.target as HTMLElement)?.closest?.(".xterm")))) {
       e.preventDefault();
       app.searchOpen = !app.searchOpen;
@@ -254,6 +256,10 @@
 
 {#if app.searchOpen}
   <CardSearch />
+{/if}
+
+{#if app.fileView}
+  {#key app.fileView}<FileViewer />{/key}
 {/if}
 
 {#if app.settingsOpen}

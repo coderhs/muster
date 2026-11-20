@@ -419,6 +419,10 @@ pub struct Settings {
     /// 0, the default, never stops one.
     #[serde(default)]
     pub idle_stop_minutes: u32,
+    /// The file viewer may open any file on the Mac, not only those in the card's folder
+    /// and project. Never applies to paired devices.
+    #[serde(default)]
+    pub any_file_path: bool,
 }
 
 fn default_silence() -> u64 {
@@ -433,6 +437,7 @@ impl Default for Settings {
             silence_seconds: default_silence(),
             clipboard_passthrough: false,
             idle_stop_minutes: 0,
+            any_file_path: false,
         }
     }
 }
@@ -995,6 +1000,35 @@ pub struct CardImageResult {
     pub new: Option<ImageSide>,
 }
 
+/// A file named in a card's terminal or chat, for the file viewer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardFileParams {
+    pub id: String,
+    /// Relative to the card's folder (then the project's), or absolute. A leading `~/`
+    /// is the user's home folder.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardFileResult {
+    /// The path to show: relative to the card's folder or the project when inside one,
+    /// otherwise absolute.
+    pub path: String,
+    /// The file's absolute path, links resolved (for opening it in an editor).
+    pub abs_path: String,
+    /// The file's text (lossy UTF-8); empty for a binary file.
+    pub content: String,
+    pub size: u64,
+    /// The text is cut at the daemon's limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    /// The file is not text.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub binary: bool,
+}
+
 /// A time range for `project.summary`, in unix ms: `from` inclusive, `to` exclusive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1495,6 +1529,8 @@ pub struct SettingsUpdateParams {
     pub clipboard_passthrough: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_stop_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub any_file_path: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1716,6 +1752,7 @@ pub enum Method {
     CardChanges(CardChangesParams),
     CardDiff(CardDiffParams),
     CardImage(CardDiffParams),
+    CardFile(CardFileParams),
     ProjectSummary(ProjectSummaryParams),
     ProjectSummarize(ProjectSummarizeParams),
     RemoteStatus(Empty),
@@ -1804,6 +1841,7 @@ methods! {
     CardChanges => "card.changes",
     CardDiff => "card.diff",
     CardImage => "card.image",
+    CardFile => "card.file",
     ProjectSummary => "project.summary",
     ProjectSummarize => "project.summarize",
     RemoteStatus => "remote.status",

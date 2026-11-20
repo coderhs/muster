@@ -211,6 +211,8 @@ pub async fn connection(
                         Err(err(ErrorCode::Unauthorized, "this device is no longer paired"))
                     } else if matches!(m, Method::RemoteSet(_) | Method::RemotePair(_) | Method::RemoteRevoke(_)) {
                         Err(err(ErrorCode::Unauthorized, "remote access is managed on the Mac"))
+                    } else if matches!(&m, Method::SettingsUpdate(p) if p.any_file_path.is_some()) {
+                        Err(err(ErrorCode::Unauthorized, "which files the viewer may open is set on the Mac"))
                     } else {
                         handle(&mut ctx, id, m).await
                     }
@@ -405,6 +407,14 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             let (cwd, project) = card_folders(&st, &p.id)?;
             let opts = muster_core::changes::Options { base: p.base.as_deref(), scope: p.scope };
             to_value(muster_core::changes::image(&cwd, &project, opts, &p.path).await?)
+        }
+
+        Method::CardFile(p) => {
+            let (cwd, project) = card_folders(&st, &p.id)?;
+            // A paired device never reaches past the card's folder and project.
+            let any = st.settings().any_file_path && ctx.role == Role::Master;
+            let (file, shown) = crate::files::resolve(&p.path, &[cwd, project], any)?;
+            to_value(crate::files::read(&file, shown)?)
         }
 
         Method::ProjectSummary(p) => {
@@ -745,6 +755,9 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
             if let Some(v) = p.clipboard_passthrough {
                 s.clipboard_passthrough = v;
                 st.backend.set_clipboard(v).await;
+            }
+            if let Some(v) = p.any_file_path {
+                s.any_file_path = v;
             }
             if let Some(v) = p.idle_stop_minutes {
                 // Up to a year; 0 switches it off.

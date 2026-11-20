@@ -100,6 +100,8 @@ export class AppState {
   shortcutsOpen = $state(false);
   /** The card search (⌘F / ⌘K). */
   searchOpen = $state(false);
+  /** The file shown in the file viewer over the card, if any. */
+  fileView = $state<{ cardId: string; path: string; line?: number; col?: number } | null>(null);
   cardMenu = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);
   /** A card picker for linking, opened from a card. */
   linking = $state<{ cardId: Id; anchor: HTMLElement } | null>(null);

@@ -123,7 +123,7 @@
         {#each m.parts as part, i (i)}
           {#if part.type === "text"}
             {#if m.role === "assistant"}
-              <div class="text md"><ChatMarkdown text={part.text} /></div>
+              <div class="text md"><ChatMarkdown text={part.text} {cardId} /></div>
             {:else}
               <div class="text">{part.text}</div>
             {/if}

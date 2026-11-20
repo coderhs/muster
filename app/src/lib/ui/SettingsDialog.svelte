@@ -5,7 +5,7 @@
   import Select from "./Select.svelte";
   import RemoteAccess from "./RemoteAccess.svelte";
   import { FONT_CHOICES, getTermPrefs, setTermPrefs } from "../term/prefs";
-  import type { AppInfo } from "../connection";
+  import type { AppInfo, EditorChoice, EditorPref } from "../connection";
   import { commitWhen, sameBuild } from "./about";
   import { idleChoices } from "./idle";
 
@@ -15,6 +15,8 @@
   let notifyStatus = $state<string | null>(null);
   let island = $state<{ enabled: boolean; available: boolean } | null>(null);
   let info = $state<AppInfo | null>(null);
+  let editors = $state<EditorChoice[] | null>(null);
+  let editor = $state<EditorPref | null>(null);
   const daemon = $derived(app.daemonStatus);
   const same = $derived(sameBuild(info?.commit, daemon?.commit));
   let term = $state(getTermPrefs());
@@ -31,7 +33,15 @@
     app.platform.notifyStatus?.().then((v) => (notifyStatus = v)).catch(() => {});
     app.platform.getIsland?.().then((v) => (island = v)).catch(() => {});
     app.platform.appInfo?.().then((v) => (info = v)).catch(() => {});
+    app.platform.listEditors?.().then((v) => (editors = v)).catch(() => {});
+    app.platform.getEditor?.().then((v) => (editor = v)).catch(() => {});
   });
+
+  async function setEditor(p: Partial<EditorPref>) {
+    if (!editor) return;
+    editor = { ...editor, ...p };
+    await app.platform.setEditor?.(editor).catch((e) => app.toast(`Could not save: ${e}`));
+  }
 
   async function setSilence(n: number) {
     try {
@@ -42,7 +52,7 @@
     }
   }
 
-  async function setDaemon(k: "keepAwake" | "autoRestore" | "clipboardPassthrough", v: boolean) {
+  async function setDaemon(k: "keepAwake" | "autoRestore" | "clipboardPassthrough" | "anyFilePath", v: boolean) {
     try {
       const { settings } = await app.call("settings.update", { [k]: v });
       app.settings = settings;
@@ -175,6 +185,46 @@
 
     {#if app.platform.kind === "tauri"}
       <RemoteAccess />
+    {/if}
+
+    {#if app.platform.kind === "tauri"}
+      <section>
+        <div class="label">Files</div>
+        <small>⌘-click a path such as <code>src/lib.rs:12</code> in a terminal, or click it in the chat, to see the file at that line.</small>
+        {#if editors && editor}
+          <div class="grid">
+            <span>Open files in</span>
+            <Select
+              label="Editor for Open in editor"
+              value={editor.editor}
+              options={editors.map((e) => ({ value: e.id, label: e.label }))}
+              onchange={(v) => setEditor({ editor: v })}
+            />
+          </div>
+          {#if editor.editor === "custom"}
+            <div class="grid">
+              <span>Command</span>
+              <input
+                class="field"
+                value={editor.command}
+                placeholder={"nvim +{line} {file}"}
+                spellcheck="false"
+                onchange={(e) => setEditor({ command: (e.currentTarget as HTMLInputElement).value })}
+              />
+            </div>
+            <small>Run by the shell. <code>{"{file}"}</code> is replaced by the file's path (quoted), <code>{"{line}"}</code> and <code>{"{col}"}</code> by where to go.</small>
+          {/if}
+        {/if}
+        {#if s && s.anyFilePath != null}
+          <label class="opt">
+            <input type="checkbox" checked={s.anyFilePath} onchange={(e) => setDaemon("anyFilePath", (e.currentTarget as HTMLInputElement).checked)} />
+            <span>
+              <b>Show any file on this Mac</b>
+              <small>Off: only files in the card's folder and its project open. Paired devices are always limited to those.</small>
+            </span>
+          </label>
+        {/if}
+      </section>
     {/if}
 
     <section>

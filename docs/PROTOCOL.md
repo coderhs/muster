@@ -933,3 +933,28 @@ filters or text conversion run. A file on disk that is a symbolic link is not fo
 so its `new` is absent.
 
 Review comments are sent with `message.send`; there is no separate method.
+
+## Round 17: the file viewer
+
+| Method | Params | Result |
+|---|---|---|
+| `card.file` | `{id, path}` | `CardFile` |
+
+```
+CardFile {path, absPath, content, size, truncated?: bool, binary?: bool}
+```
+
+`path` is what the user clicked: relative (tried in the card's folder, then the
+project's), absolute, `~/...` or `file://...`. Links are followed and the real place is
+checked: it must be inside the card's folder or the project, unless `Settings` has
+`anyFilePath` (default `false`) and the caller is the app or CLI with the master token.
+A paired device is always held to the two folders and may not change `anyFilePath`;
+card tokens may not call `card.file` at all. The returned `path` is relative to the
+folder it was found in, or absolute when outside both. At most 2 MB of text is
+returned (`truncated` when cut); a file with a NUL byte in its first 8000 bytes is
+`binary` and comes without `content`. Line numbers are the viewer's business: the path
+carries none.
+
+Opening a file in an editor is done by the desktop shell (Tauri commands
+`list_editors`, `get_editor`, `set_editor`, `open_in_editor`, `reveal_file`), not the
+daemon, so it is unavailable over remote access.
