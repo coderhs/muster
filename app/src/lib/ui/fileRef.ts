@@ -22,12 +22,17 @@ const EXTS = new Set(
     "sql graphql gql proto lock ini cfg conf env plist gradle tf hcl dart scala clj zig nim r jl pl ps1 bat"
   ).split(" "),
 );
-/** Names without an ending that are still files. */
-const NAMES = new Set(["Makefile", "Dockerfile", "Gemfile", "Rakefile", "Procfile", "Brewfile", "Justfile", "Podfile", "Fastfile"]);
+/**
+ * Names without an ending that are still files: `Makefile`, `Guardfile`, `Vagrantfile`
+ * and the like, plus a few others.
+ */
+const NAME_RE = /^(?:[A-Z][a-z]*(?:[A-Z][a-z]*)*file|Dockerfile\.[\w.-]+|LICENSE|CODEOWNERS)$/;
 
 // A path: optional `~/`, `./`, `../` or `/`, folders, then a name with an ending (or a
 // known name). Then a line: `:12`, `:12:4`, `#L12`, `#L12-L20` or ` (line 12)`.
-const PATH = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@+\-.]+\/)*(?:[\w@+\-.]*\.[A-Za-z][\w]{0,11}|${[...NAMES].join("|")})`;
+// A name without an ending (`bin/rails`) is matched too, and kept only when it is a
+// known kind of name or comes with both a folder and a line.
+const PATH = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@+\-.]+\/)*(?:[\w@+\-.]*\.[A-Za-z][\w]{0,11}|[\w@+\-]+)`;
 const LINE = String.raw`(?::(\d+)(?::(\d+))?|#L(\d+)(?:-L?\d+)?| \(line (\d+)\))?`;
 const RE = new RegExp(String.raw`(?<![\w/.~\-:@])(${PATH})${LINE}(?![\w/])`, "g");
 
@@ -46,8 +51,10 @@ export function findRefs(text: string, loose = false): FoundRef[] {
     const col = num(m[3]);
     const name = path.slice(path.lastIndexOf("/") + 1);
     const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
-    const known = EXTS.has(ext) || NAMES.has(name);
+    const named = NAME_RE.test(name);
+    const known = EXTS.has(ext) || named;
     const folder = path.includes("/");
+    if (!ext && !named && !(folder && line !== undefined)) continue;
     // A version number or a domain is not a file: `v1.2`, `example.com`.
     if (!folder && line === undefined && !(loose && known)) continue;
     if (!folder && !known && !/^\.?[\w-]+\.[a-z]+$/i.test(name)) continue;

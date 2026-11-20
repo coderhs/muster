@@ -23,6 +23,10 @@ describe("file references", () => {
     expect(refs("edited store.rs today", true)).toEqual([{ path: "store.rs", line: undefined, col: undefined }]);
     expect(refs("store.rs:10")).toEqual([{ path: "store.rs", line: 10, col: undefined }]);
     expect(refs("Makefile", true)).toEqual([{ path: "Makefile", line: undefined, col: undefined }]);
+    expect(refs("see Guardfile:4 and Vagrantfile")).toEqual([{ path: "Guardfile", line: 4, col: undefined }]);
+    expect(refs("Vagrantfile", true)).toEqual([{ path: "Vagrantfile", line: undefined, col: undefined }]);
+    expect(refs("bin/rails:12 then bin/setup")).toEqual([{ path: "bin/rails", line: 12, col: undefined }]);
+    expect(refs("localhost:3000, step:2, Note: profile and file", true)).toEqual([]);
   });
 
   it("leaves versions, URLs, domains and sentences alone", () => {
