@@ -163,6 +163,90 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE cards ADD COLUMN last_message TEXT;
     "#,
+    // v12–v14 belong to bots, which are not part of this build. The tables stay so a
+    // database that had them keeps working, and are unused here.
+    // v12: bots, each a project of its own (docs/BOTS.md)
+    r#"
+    CREATE TABLE bots (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL,
+        model TEXT,
+        chat_card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+        paused INTEGER NOT NULL DEFAULT 0,
+        template TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE bot_scope (
+        bot_id TEXT NOT NULL REFERENCES bots(project_id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        PRIMARY KEY (bot_id, project_id)
+    );
+    "#,
+    // v13: bots wake on their own: triggers, runs, items for the user, powers
+    r#"
+    ALTER TABLE bots ADD COLUMN daily_cap INTEGER NOT NULL DEFAULT 20;
+    ALTER TABLE bots ADD COLUMN powers TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE cards ADD COLUMN bot_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+    CREATE TABLE bot_triggers (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(project_id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        schedule TEXT NOT NULL,
+        probe TEXT,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        prompt TEXT NOT NULL,
+        agent_id TEXT,
+        model TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run_at INTEGER,
+        next_run_at INTEGER,
+        last_error TEXT,
+        baselined INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE bot_seen (
+        trigger_id TEXT NOT NULL REFERENCES bot_triggers(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        first_seen_at INTEGER NOT NULL,
+        PRIMARY KEY (trigger_id, item_id)
+    );
+    CREATE TABLE bot_runs (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(project_id) ON DELETE CASCADE,
+        trigger_id TEXT REFERENCES bot_triggers(id) ON DELETE SET NULL,
+        trigger_name TEXT NOT NULL,
+        card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        outcome TEXT,
+        summary TEXT,
+        items TEXT NOT NULL DEFAULT '[]',
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER
+    );
+    CREATE INDEX bot_runs_bot ON bot_runs(bot_id, created_at);
+    CREATE INDEX bot_runs_card ON bot_runs(card_id);
+    CREATE TABLE inbox (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(project_id) ON DELETE CASCADE,
+        run_id TEXT REFERENCES bot_runs(id) ON DELETE SET NULL,
+        card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+        urgency TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        links TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        read_at INTEGER
+    );
+    CREATE INDEX inbox_bot ON inbox(bot_id, created_at);
+    "#,
+    // v14: watches a bot made wait for the user's approval
+    r#"
+    ALTER TABLE bot_triggers ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 /// Ranges whose written summary is kept per card and per project; the oldest go first.
