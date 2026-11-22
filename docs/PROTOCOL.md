@@ -33,7 +33,7 @@ socket is closed.
 
 ```
 Project  {id, name, path, color, position}
-Column   {id, projectId, title, color, category, position}
+Column   {id, projectId, title, color, category, position, sort?}
            category: "unstarted" | "started" | "done" | "closed"
 Card     {id, projectId, columnId, rank, title, agentId, cwd, branch?, prompt?, notes?,
           priority?, dueAt?, agentSessionId?, status, statusSince, turnStartedAt?,
@@ -58,7 +58,8 @@ Agent    {id, label, color, installed}
 | `project.remove` | `{id}` | `{}` (refused with `conflict` while any card has a live session) |
 | `board.get` | `{projectId}` | `{project, columns: Column[], cards: Card[]}` |
 | `column.create` | `{projectId, title, color?, category?}` | `{column}` |
-| `column.update` | `{id, title?, color?, category?, position?}` | `{column}` |
+| `column.update` | `{id, title?, color?, category?, position?, sort?}` | `{column}` |
+| `column.sortCards` | `{id, by}` | `{cards}`: sorts the cards once and returns those that moved |
 | `column.delete` | `{id, moveCardsTo}` | `{}` |
 | `card.create` | `{projectId, columnId, title?, agentId, cwd?, prompt?, start?: bool, worktree?: {branch}, resumeSessionId?}` | `{card}` |
 | `card.update` | `{id, title?, prompt?, notes?, priority?, dueAt?}` | `{card}` |
@@ -72,6 +73,8 @@ Agent    {id, label, color, installed}
 | `term.write` | `{cardId, data}` (utf-8 string) | `{}` |
 | `term.resize` | `{cardId, cols, rows}` | `{cols, rows}` (the effective size) |
 | `agent.list` | `{}` | `{agents: Agent[]}` |
+
+A column's `sort` (`last_ran`, or `null` to order by hand) keeps its cards in that order: turning it on sorts them, and a card that starts running, or is moved into the column, takes its place by when its agent last started working. Cards that never ran go last, in the order the user gave them.
 
 Rules:
 
