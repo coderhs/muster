@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use muster_proto::{
-    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, Comment, Device, ErrorCode, Link, Message, Priority,
+    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, ColumnSort, Comment, Device, ErrorCode, Link, Message, Priority,
     Project,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -342,6 +342,13 @@ fn project_from_row(r: &Row) -> rusqlite::Result<Project> {
     })
 }
 
+/// Larger sorts first. Cards that never ran have no key and go last.
+fn sort_key(c: &Card, by: ColumnSort) -> Option<i64> {
+    match by {
+        ColumnSort::LastRan => c.turn_started_at,
+    }
+}
+
 fn column_from_row(r: &Row) -> rusqlite::Result<Column> {
     let cat: String = r.get(4)?;
     Ok(Column {
@@ -351,6 +358,7 @@ fn column_from_row(r: &Row) -> rusqlite::Result<Column> {
         color: r.get(3)?,
         category: ColumnCategory::parse(&cat).unwrap_or(ColumnCategory::Unstarted),
         position: r.get(5)?,
+        sort: r.get::<_, Option<String>>(6)?.as_deref().and_then(ColumnSort::parse),
     })
 }
 
@@ -372,6 +380,7 @@ impl Store {
         .map_err(sql_err)?;
         let mut store = Store { conn };
         store.migrate()?;
+        store.ensure_columns()?;
         Ok(store)
     }
 
@@ -388,6 +397,27 @@ impl Store {
             tx.execute_batch(sql).map_err(sql_err)?;
             tx.pragma_update(None, "user_version", (i + 1) as i64).map_err(sql_err)?;
             tx.commit().map_err(sql_err)?;
+        }
+        Ok(())
+    }
+
+    /// Adds columns that came in outside the numbered migrations, so they work
+    /// whichever order branches that each add a migration are merged in.
+    fn ensure_columns(&mut self) -> Result<()> {
+        const EXTRA: &[(&str, &str, &str)] = &[("columns", "sort", "TEXT")];
+        for (table, col, ty) in EXTRA {
+            let has: bool = self
+                .conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
+                    [col],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map_err(sql_err)?
+                > 0;
+            if !has {
+                self.conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty};")).map_err(sql_err)?;
+            }
         }
         Ok(())
     }
@@ -457,6 +487,7 @@ impl Store {
                 color: String::new(),
                 category: *cat,
                 position: i as i64,
+                sort: None,
             };
             tx.execute(
                 "INSERT INTO columns (id, project_id, title, color, category, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -531,7 +562,7 @@ impl Store {
         let mut st = self
             .conn
             .prepare_cached(
-                "SELECT id, project_id, title, color, category, position FROM columns \
+                "SELECT id, project_id, title, color, category, position, sort FROM columns \
                  WHERE project_id = ?1 ORDER BY position",
             )
             .map_err(sql_err)?;
@@ -542,7 +573,7 @@ impl Store {
     pub fn get_column(&self, id: &str) -> Result<Column> {
         self.conn
             .query_row(
-                "SELECT id, project_id, title, color, category, position FROM columns WHERE id = ?1",
+                "SELECT id, project_id, title, color, category, position, sort FROM columns WHERE id = ?1",
                 [id],
                 column_from_row,
             )
@@ -570,6 +601,7 @@ impl Store {
             color: color.unwrap_or("").to_string(),
             category: category.unwrap_or(ColumnCategory::Unstarted),
             position,
+            sort: None,
         };
         self.conn
             .execute(
@@ -588,6 +620,7 @@ impl Store {
         color: Option<&str>,
         category: Option<ColumnCategory>,
         position: Option<i64>,
+        sort: Option<Option<ColumnSort>>,
     ) -> Result<Vec<Column>> {
         let mut c = self.get_column(id)?;
         if let Some(t) = title {
@@ -602,10 +635,13 @@ impl Store {
         if let Some(cat) = category {
             c.category = cat;
         }
+        if let Some(sort) = sort {
+            c.sort = sort;
+        }
         self.conn
             .execute(
-                "UPDATE columns SET title = ?2, color = ?3, category = ?4 WHERE id = ?1",
-                params![c.id, c.title, c.color, c.category.as_str()],
+                "UPDATE columns SET title = ?2, color = ?3, category = ?4, sort = ?5 WHERE id = ?1",
+                params![c.id, c.title, c.color, c.category.as_str(), c.sort.map(ColumnSort::as_str)],
             )
             .map_err(sql_err)?;
         let mut changed = vec![];
@@ -926,6 +962,7 @@ impl Store {
         if from != column_id {
             self.log(id, "move", Some(&serde_json::json!({"from": from, "to": column_id}).to_string()))?;
         }
+        self.keep_sorted(id)?;
         self.get_card(id)
     }
 
@@ -963,6 +1000,9 @@ impl Store {
             "status",
             Some(&serde_json::json!({"from": c.status.as_str(), "to": status.as_str()}).to_string()),
         )?;
+        if turn != c.turn_started_at {
+            self.keep_sorted(id)?;
+        }
         self.get_card(id)
     }
 
@@ -1016,7 +1056,64 @@ impl Store {
                 Some(&serde_json::json!({"from": c.status.as_str(), "to": s.status.as_str()}).to_string()),
             )?;
         }
+        if s.turn_started_at != c.turn_started_at {
+            self.keep_sorted(&s.card_id)?;
+        }
         self.get_card(&s.card_id)
+    }
+
+    /// Sorts a column's cards by `by`, rewriting their ranks, and returns the cards
+    /// whose place changed.
+    pub fn sort_cards(&mut self, column_id: &str, by: ColumnSort) -> Result<Vec<Card>> {
+        self.get_column(column_id)?;
+        let cards = self.cards_in_column(column_id)?;
+        let mut order: Vec<&Card> = cards.iter().collect();
+        // Stable, so cards with the same key keep their current order.
+        order.sort_by_key(|c| std::cmp::Reverse(sort_key(c, by)));
+        if order.iter().zip(&cards).all(|(a, b)| a.id == b.id) {
+            return Ok(vec![]);
+        }
+        let ranks = rank::spread(order.len());
+        let tx = self.conn.transaction().map_err(sql_err)?;
+        for (c, r) in order.iter().zip(&ranks) {
+            tx.execute("UPDATE cards SET rank = ?2 WHERE id = ?1", params![c.id, r]).map_err(sql_err)?;
+        }
+        tx.commit().map_err(sql_err)?;
+        let moved: Vec<String> =
+            order.iter().zip(&ranks).filter(|(c, r)| c.rank != **r).map(|(c, _)| c.id.clone()).collect();
+        moved.iter().map(|id| self.get_card(id)).collect()
+    }
+
+    /// In a column that keeps its cards sorted, puts the card where the order says.
+    /// Changes only that card's rank; a column with tied ranks is sorted afresh.
+    fn keep_sorted(&mut self, id: &str) -> Result<()> {
+        let card = self.get_card(id)?;
+        let Some(by) = self.get_column(&card.column_id)?.sort else {
+            return Ok(());
+        };
+        let cards = self.cards_in_column(&card.column_id)?;
+        let now = cards.iter().position(|c| c.id == id).unwrap_or(0);
+        let others: Vec<&Card> = cards.iter().filter(|c| c.id != id).collect();
+        let key = sort_key(&card, by);
+        // Where it is already fits the order (so cards that tie, such as those that
+        // never ran, keep the order the user gave them).
+        let fits = (now == 0 || sort_key(others[now - 1], by) >= key)
+            && others.get(now).is_none_or(|c| sort_key(c, by) <= key);
+        if fits {
+            return Ok(());
+        }
+        // Before the first card that sorts after it; ties stay ahead of it.
+        let want = others.iter().position(|c| sort_key(c, by) < key).unwrap_or(others.len());
+        let lo = want.checked_sub(1).map(|i| others[i].rank.as_str());
+        let hi = others.get(want).map(|c| c.rank.as_str());
+        if matches!((lo, hi), (Some(l), Some(h)) if l >= h) {
+            self.sort_cards(&card.column_id, by)?;
+            return Ok(());
+        }
+        self.conn
+            .execute("UPDATE cards SET rank = ?2 WHERE id = ?1", params![id, rank::between(lo, hi)])
+            .map_err(sql_err)?;
+        Ok(())
     }
 
     /// Sets an automatic title from `source` (`prompt` or `agent`) if the card's title
@@ -1988,8 +2085,59 @@ mod tests {
         assert_eq!(s.list_columns(&p.id).unwrap().iter().map(|c| c.position).collect::<Vec<_>>(), [0, 1, 2]);
         let nc = s.create_column(&p.id, "Blocked", None, None).unwrap();
         assert_eq!(nc.position, 3);
-        let ch = s.update_column(&nc.id, None, None, None, Some(0)).unwrap();
+        let ch = s.update_column(&nc.id, None, None, None, Some(0), None).unwrap();
         assert_eq!(ch.len(), 4);
         assert_eq!(s.list_columns(&p.id).unwrap()[0].id, nc.id);
+    }
+
+    #[test]
+    fn columns_sort_by_last_ran() {
+        let (mut s, p, cols) = store_with_project();
+        let col = &cols[1];
+        let tick = || std::thread::sleep(std::time::Duration::from_millis(3));
+        let e = card(&mut s, &p, &cols[0], "e");
+        s.set_status(&e.id, CardStatus::Running).unwrap();
+        tick();
+        let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|t| card(&mut s, &p, col, t).id).collect();
+        let (a, b, c, d) = (&ids[0], &ids[1], &ids[2], &ids[3]);
+
+        // Ordered by hand: running changes nothing until the cards are sorted.
+        s.set_status(b, CardStatus::Running).unwrap();
+        assert_eq!(titles(&s, col), ["a", "b", "c", "d"]);
+        let moved = s.sort_cards(&col.id, ColumnSort::LastRan).unwrap();
+        assert!(!moved.is_empty());
+        assert_eq!(titles(&s, col), ["b", "a", "c", "d"]);
+        assert!(s.sort_cards(&col.id, ColumnSort::LastRan).unwrap().is_empty());
+        assert_eq!(s.get_column(&col.id).unwrap().sort, None);
+
+        // Kept sorted: the card that starts running goes to the top.
+        let ch = s.update_column(&col.id, None, None, None, None, Some(Some(ColumnSort::LastRan))).unwrap();
+        assert_eq!(ch[0].sort, Some(ColumnSort::LastRan));
+        tick();
+        let got = s.set_status(d, CardStatus::Running).unwrap();
+        assert_eq!(titles(&s, col), ["d", "b", "a", "c"]);
+        assert_eq!(got.rank, s.cards_in_column(&col.id).unwrap()[0].rank);
+        tick();
+        s.set_status(b, CardStatus::Idle).unwrap();
+        assert_eq!(titles(&s, col), ["d", "b", "a", "c"]);
+        s.set_status(b, CardStatus::Running).unwrap();
+        assert_eq!(titles(&s, col), ["b", "d", "a", "c"]);
+
+        // A card placed by hand goes back where the order puts it; one moved in from
+        // another column lands by when it last ran.
+        s.move_card(a, &col.id, Some(b), None).unwrap();
+        assert_eq!(titles(&s, col), ["b", "d", "c", "a"]);
+        s.move_card(a, &col.id, Some(c), None).unwrap();
+        assert_eq!(titles(&s, col), ["b", "d", "a", "c"]);
+        s.move_card(&e.id, &col.id, Some(b), None).unwrap();
+        assert_eq!(titles(&s, col), ["b", "d", "e", "a", "c"]);
+
+        // Back to ordering by hand.
+        s.update_column(&col.id, None, None, None, None, Some(None)).unwrap();
+        tick();
+        s.set_status(c, CardStatus::Running).unwrap();
+        assert_eq!(titles(&s, col), ["b", "d", "e", "a", "c"]);
+        s.move_card(c, &col.id, Some(b), None).unwrap();
+        assert_eq!(titles(&s, col)[0], "c");
     }
 }

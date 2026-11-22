@@ -185,6 +185,34 @@ pub struct Column {
     pub color: String,
     pub category: ColumnCategory,
     pub position: i64,
+    /// Keeps the column's cards in this order as they change; absent for a column the
+    /// user orders by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<ColumnSort>,
+}
+
+/// An order a column's cards can be sorted in.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnSort {
+    /// The card whose agent started working most recently first; cards that never ran
+    /// last, in their current order.
+    LastRan,
+}
+
+impl ColumnSort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ColumnSort::LastRan => "last_ran",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<ColumnSort> {
+        match s {
+            "last_ran" => Some(ColumnSort::LastRan),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -1236,6 +1264,25 @@ pub struct ColumnUpdateParams {
     pub category: Option<ColumnCategory>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<i64>,
+    /// Keep the cards sorted (`null` goes back to ordering by hand). Turning it on
+    /// sorts the cards straight away.
+    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    pub sort: Option<Option<ColumnSort>>,
+}
+
+/// Sorts a column's cards once; the column stays ordered by hand afterwards.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnSortCardsParams {
+    pub id: String,
+    pub by: ColumnSort,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnSortCardsResult {
+    /// The cards whose place changed.
+    pub cards: Vec<Card>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1711,6 +1758,7 @@ pub enum Method {
     BoardGet(BoardGetParams),
     ColumnCreate(ColumnCreateParams),
     ColumnUpdate(ColumnUpdateParams),
+    ColumnSortCards(ColumnSortCardsParams),
     ColumnDelete(ColumnDeleteParams),
     CardCreate(CardCreateParams),
     CardUpdate(CardUpdateParams),
@@ -1800,6 +1848,7 @@ methods! {
     BoardGet => "board.get",
     ColumnCreate => "column.create",
     ColumnUpdate => "column.update",
+    ColumnSortCards => "column.sortCards",
     ColumnDelete => "column.delete",
     CardCreate => "card.create",
     CardUpdate => "card.update",

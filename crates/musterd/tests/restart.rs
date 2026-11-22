@@ -183,6 +183,14 @@ async fn board_methods_and_events() {
     let moved = c.call("column.update", json!({"id": review_id, "position": 1, "title": "Review!"})).await.unwrap();
     assert_eq!(moved["column"]["position"], 1);
     assert_eq!(moved["column"]["title"], "Review!");
+    assert!(moved["column"].get("sort").is_none());
+    let sorted = c.call("column.update", json!({"id": review_id, "sort": "last_ran"})).await.unwrap();
+    assert_eq!(sorted["column"]["sort"], "last_ran");
+    let r = c.call("column.sortCards", json!({"id": review_id, "by": "last_ran"})).await.unwrap();
+    assert_eq!(r["cards"], json!([]), "no cards to move");
+    assert!(c.call("column.update", json!({"id": review_id, "sort": "newest"})).await.is_err());
+    let plain = c.call("column.update", json!({"id": review_id, "sort": null})).await.unwrap();
+    assert!(plain["column"].get("sort").is_none());
 
     let mk = |title: &str| json!({"projectId": pid, "columnId": cols[0], "agentId": "claude", "title": title});
     let a = c.call("card.create", mk("a")).await.unwrap()["card"].clone();

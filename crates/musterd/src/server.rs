@@ -475,11 +475,26 @@ async fn handle(ctx: &mut Ctx, req_id: u64, m: Method) -> Result<Reply> {
                 p.color.as_deref(),
                 p.category,
                 p.position,
+                p.sort,
             )?;
             for column in &changed {
                 st.clients.broadcast(&Event::ColumnChanged(ColumnChanged::Updated { column: column.clone() }));
             }
+            if let Some(Some(by)) = p.sort {
+                let moved = st.store.lock().unwrap().sort_cards(&p.id, by)?;
+                for card in moved {
+                    st.emit_card(card);
+                }
+            }
             to_value(ColumnResult { column: changed[0].clone() })
+        }
+
+        Method::ColumnSortCards(p) => {
+            let cards = st.store.lock().unwrap().sort_cards(&p.id, p.by)?;
+            for card in &cards {
+                st.emit_card(card.clone());
+            }
+            to_value(ColumnSortCardsResult { cards })
         }
 
         Method::ColumnDelete(p) => {

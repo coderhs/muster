@@ -27,7 +27,12 @@ export interface Column {
   color: string;
   category: ColumnCategory;
   position: number;
+  /** Keeps the cards in this order as they change; absent when ordered by hand. */
+  sort?: ColumnSort;
 }
+
+/** `last_ran`: the card whose agent started working most recently first. */
+export type ColumnSort = "last_ran";
 
 export interface Card {
   id: Id;
@@ -305,9 +310,10 @@ export interface Methods {
     { column: Column },
   ];
   "column.update": [
-    { id: Id; title?: string; color?: string; category?: ColumnCategory; position?: number },
+    { id: Id; title?: string; color?: string; category?: ColumnCategory; position?: number; sort?: ColumnSort | null },
     { column: Column },
   ];
+  "column.sortCards": [{ id: Id; by: ColumnSort }, { cards: Card[] }];
   "column.delete": [{ id: Id; moveCardsTo: Id }, Record<string, never>];
   "card.create": [
     {

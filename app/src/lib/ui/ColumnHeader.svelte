@@ -1,7 +1,7 @@
 <script lang="ts">
   import Select from "./Select.svelte";
   import { focusOnMount } from "./actions";
-  import type { Column, ColumnCategory } from "../protocol/types";
+  import type { Column, ColumnCategory, ColumnSort } from "../protocol/types";
   import { useApp } from "../state/context";
   import Icon from "./Icon.svelte";
   import Popover from "./Popover.svelte";
@@ -22,10 +22,25 @@
   const color = $derived(colorOr(column.color, CATEGORY_COLOR[column.category] ?? "#8e8e93"));
   const others = $derived(app.columns.filter((c) => c.id !== column.id));
 
-  async function update(p: { title?: string; color?: string; category?: ColumnCategory; position?: number }) {
+  async function update(p: {
+    title?: string;
+    color?: string;
+    category?: ColumnCategory;
+    position?: number;
+    sort?: ColumnSort | null;
+  }) {
     try {
       const { column: c } = await app.call("column.update", { id: column.id, ...p });
       app.applyColumn(c);
+    } catch {
+      /* toast shown */
+    }
+  }
+
+  async function sortOnce() {
+    menuOpen = false;
+    try {
+      await app.call("column.sortCards", { id: column.id, by: "last_ran" });
     } catch {
       /* toast shown */
     }
@@ -85,6 +100,9 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <span class="title" ondblclick={startRename} title={CATEGORY_LABEL[column.category]}>{column.title}</span>
     <span class="count">{count}</span>
+    {#if column.sort === "last_ran"}
+      <span class="sorted" title="Kept sorted by last ran"><Icon name="sort" size={12} /></span>
+    {/if}
   {/if}
   <span class="spacer"></span>
   <button
@@ -103,6 +121,23 @@
 {#if menuOpen}
   <Popover anchor={menuBtn} onclose={() => (menuOpen = false)} width={210}>
     <button class="mi" onclick={startRename}><Icon name="pencil" size={14} />Rename</button>
+    <div class="sep"></div>
+    <div class="sub">Order</div>
+    <button class="mi" disabled={column.sort === "last_ran"} onclick={sortOnce}
+      ><Icon name="sort" size={14} />Sort by last ran</button
+    >
+    <button
+      class="mi"
+      onclick={() => {
+        menuOpen = false;
+        void update({ sort: column.sort === "last_ran" ? null : "last_ran" });
+      }}
+    >
+      <span style="width:14px;display:inline-grid;place-items:center">
+        {#if column.sort === "last_ran"}<Icon name="check" size={13} />{/if}
+      </span>
+      Keep sorted by last ran
+    </button>
     <div class="sep"></div>
     <div class="sub">Colour</div>
     <Swatches
@@ -198,6 +233,11 @@
   .count {
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
+  }
+  .sorted {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-3);
   }
   .spacer {
     flex: 1;
