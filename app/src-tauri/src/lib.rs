@@ -7,6 +7,7 @@ mod watcher;
 
 use serde::Serialize;
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindowBuilder};
 
@@ -245,6 +246,7 @@ pub(crate) fn on_tray_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
 /// The standard macOS menus, minus "Close Window": Cmd+W is left to the page, which
 /// uses it to close the card modal. The Edit menu is what makes Cmd+C / Cmd+V reach
 /// the webview (and so the terminal).
+#[cfg(target_os = "macos")]
 fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let sep = || PredefinedMenuItem::separator(app);
     let muster = Submenu::with_items(
@@ -297,8 +299,11 @@ pub fn run() {
             eprintln!("muster: {e}");
         }
     });
-    let app = tauri::Builder::default()
-        .menu(app_menu)
+    let builder = tauri::Builder::default();
+    // Elsewhere a menu would be a bar inside the window, and these items do nothing there.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu);
+    let app = builder
         .on_menu_event(|app, ev| {
             if ev.id().as_ref() == "quit" {
                 app.exit(0);
@@ -355,16 +360,20 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Muster");
-    app.run(|app, event| match event {
+    app.run(|_app, event| match event {
         #[cfg(debug_assertions)]
         tauri::RunEvent::ExitRequested { code: Some(c), .. } => eprintln!("muster: exit requested ({c})"),
         // Closing the last window keeps the app (and the menu-bar item) running; the
         // window's webview is destroyed, so only the shell and its tray remain.
         // An explicit quit (menu, tray, Cmd+Q) carries an exit code and goes through.
+        // On Linux closing the window quits: a desktop may show no tray icon (stock GNOME
+        // does not), which would leave the app running with no way back to it. The daemon
+        // and its sessions carry on either way.
+        #[cfg(target_os = "macos")]
         tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { has_visible_windows: false, .. } => {
-            show_main(app);
+            show_main(_app);
         }
         _ => {}
     });

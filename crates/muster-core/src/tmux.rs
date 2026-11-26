@@ -111,7 +111,8 @@ pub fn find_tmux() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// The user's login shell: `$SHELL`, else the password database, else zsh.
+/// The user's login shell: `$SHELL`, else the password database, else zsh (bash on
+/// Linux).
 pub fn login_shell() -> String {
     if let Ok(s) = std::env::var("SHELL") {
         if !s.is_empty() {
@@ -128,10 +129,11 @@ pub fn login_shell() -> String {
             }
         }
     }
-    "/bin/zsh".to_string()
+    if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.to_string()
 }
 
-const FALLBACK_LOCALE: &str = "en_US.UTF-8";
+// C.UTF-8 exists on every Linux; en_US only where it has been generated.
+const FALLBACK_LOCALE: &str = if cfg!(target_os = "macos") { "en_US.UTF-8" } else { "C.UTF-8" };
 
 /// Variables an agent CLI sets for the programs it starts. When the daemon is itself
 /// started from inside such a session (a terminal in Claude Code, say), they must not

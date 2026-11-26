@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appMod, keyText } from "../os";
   import { focusOnMount } from "./actions";
   import type { Project } from "../protocol/types";
   import { useApp } from "../state/context";
@@ -72,7 +73,7 @@
 
   function onKey(e: KeyboardEvent) {
     // Cmd+1..9 switches projects.
-    if (e.metaKey && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+    if (appMod(e) && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
       const p = app.projects[Number(e.key) - 1];
       if (p) {
         e.preventDefault();
@@ -96,7 +97,7 @@
             class="tile"
             class:active={p.id === app.currentProjectId}
             style="--c:{c};--ink:{inkOn(c)}"
-            title="{p.name}{i < 9 ? ` (⌘${i + 1})` : ''}{needs ? ` · ${needs} need you` : ''}"
+            title="{p.name}{i < 9 ? ` (${keyText(`⌘${i + 1}`)})` : ''}{needs ? ` · ${needs} need you` : ''}"
             aria-label={p.name}
             aria-current={p.id === app.currentProjectId ? "true" : undefined}
             onclick={() => {
@@ -117,7 +118,7 @@
       <li><button class="icon-btn" title="Add project" onclick={add}><Icon name="plus" /></button></li>
     </ul>
     <div class="bottom">
-      <button class="icon-btn" title="Settings (⌘,)" onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
+      <button class="icon-btn" title={keyText("Settings (⌘,)")} onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
     </div>
   </nav>
 {:else}
@@ -166,7 +167,7 @@
             {#if app.needsYouByProject.get(p.id)}
               <span class="needs" title="{app.needsYouByProject.get(p.id)} need you">{app.needsYouByProject.get(p.id)}</span>
             {/if}
-            {#if i < 9}<span class="hint">⌘{i + 1}</span>{/if}
+            {#if i < 9}<span class="hint">{keyText(`⌘${i + 1}`)}</span>{/if}
             <span
               class="more"
               role="button"
@@ -206,7 +207,7 @@
     <button class="first" onclick={add}><Icon name="folder" />Add a project folder</button>
   {/if}
   <div class="bottom">
-    <button class="icon-btn" title="Settings (⌘,)" onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
+    <button class="icon-btn" title={keyText("Settings (⌘,)")} onclick={() => (app.settingsOpen = true)}><Icon name="gear" /></button>
   </div>
 </nav>
 {/if}

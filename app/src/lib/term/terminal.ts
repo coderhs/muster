@@ -1,6 +1,7 @@
 // The single live terminal. It exists only while a card modal shows a session and is
 // disposed on close, so at most one xterm instance is ever alive.
 
+import { isMac } from "../os";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -62,7 +63,6 @@ const LIGHT: ITheme = {
 };
 
 const darkQuery = () => window.matchMedia?.("(prefers-color-scheme: dark)");
-const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 export interface TermCallbacks {
   onError?: (msg: string) => void;
@@ -276,7 +276,15 @@ export function openTerminal(host: HTMLElement, client: MusterClient, cardId: st
     }
     // Modal shortcuts (switch Terminal/Chat, move focus) must reach the page.
     if (ev.ctrlKey && (ev.key === "Tab" || ev.key === "`")) return false;
-    if (!mac && cmd && (ev.key === "C" || ev.key === "V")) return false;
+    if (!mac && cmd && ev.key === "C") {
+      // The web view copies nothing for this chord on its own.
+      const text = term.getSelection();
+      if (text) void navigator.clipboard?.writeText(text).catch(() => {});
+      ev.preventDefault();
+      return false;
+    }
+    // Left to the web view, which pastes into the terminal's text box.
+    if (!mac && cmd && ev.key === "V") return false;
     return true;
   });
 

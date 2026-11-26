@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { computer, isMac, keyText } from "../os";
   import { onMount } from "svelte";
   import { useApp } from "../state/context";
   import Dialog from "./Dialog.svelte";
@@ -91,7 +92,7 @@
         <label class="opt">
           <input type="checkbox" checked={s.keepAwake} onchange={(e) => setDaemon("keepAwake", (e.currentTarget as HTMLInputElement).checked)} data-autofocus />
           <span>
-            <b>Keep the Mac awake while agents are running</b>
+            <b>Keep the {computer()} awake while agents are running</b>
             <small>Prevents idle sleep only while a card is running; the display can still sleep. Released on battery below 10%.</small>
           </span>
         </label>
@@ -106,7 +107,7 @@
           <label class="opt">
             <input type="checkbox" checked={s.clipboardPassthrough} onchange={(e) => setDaemon("clipboardPassthrough", (e.currentTarget as HTMLInputElement).checked)} />
             <span>
-              <b>Let programs in cards copy to the Mac clipboard</b>
+              <b>Let programs in cards copy to the {computer()} clipboard</b>
               <small>Lets terminal programs (editors, agents' copy commands) set the clipboard. Off by default: anything running in a card could otherwise replace what you copied.</small>
             </span>
           </label>
@@ -156,10 +157,12 @@
           <input type="checkbox" checked={notify} onchange={(e) => setNotify((e.currentTarget as HTMLInputElement).checked)} />
           <span>
             <b>Notify when a card needs you or finishes</b>
-            <small>Only while the Muster window is not in front (also when only the menu-bar item is running). Clicking opens the card.</small>
+            <small>Only while the Muster window is not in front {isMac() ? "(also when only the menu-bar item is running)" : ""}. Clicking opens the card.</small>
           </span>
         </label>
-        {#if notifyStatus === "denied"}
+        {#if notifyStatus === "unavailable" && !isMac()}
+          <p class="warn">Notifications need the notify-send command: install libnotify-bin, then restart Muster.</p>
+        {:else if notifyStatus === "denied"}
           <p class="warn">macOS is blocking Muster's notifications. Allow them in System Settings → Notifications → Muster.</p>
         {:else if notifyStatus === "unavailable"}
           <p class="warn">Notifications need the app bundle (Muster.app); this copy runs without one.</p>
@@ -169,7 +172,7 @@
       {:else}
         <p class="muted">Notifications come from the desktop app.</p>
       {/if}
-      {#if app.platform.setIsland && island}
+      {#if app.platform.setIsland && island && isMac()}
         <label class="opt">
           <input type="checkbox" checked={island.enabled} onchange={(e) => setIsland((e.currentTarget as HTMLInputElement).checked)} />
           <span>
@@ -190,7 +193,7 @@
     {#if app.platform.kind === "tauri"}
       <section>
         <div class="label">Files</div>
-        <small>⌘-click a path such as <code>src/lib.rs:12</code> in a terminal, or click it in the chat, to see the file at that line.</small>
+        <small>{keyText("⌘-click")} a path such as <code>src/lib.rs:12</code> in a terminal, or click it in the chat, to see the file at that line.</small>
         {#if editors && editor}
           <div class="grid">
             <span>Open files in</span>
@@ -219,7 +222,7 @@
           <label class="opt">
             <input type="checkbox" checked={s.anyFilePath} onchange={(e) => setDaemon("anyFilePath", (e.currentTarget as HTMLInputElement).checked)} />
             <span>
-              <b>Show any file on this Mac</b>
+              <b>Show any file on this {computer()}</b>
               <small>Off: only files in the card's folder and its project open. Paired devices are always limited to those.</small>
             </span>
           </label>

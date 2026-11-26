@@ -26,6 +26,7 @@ pub struct Row {
 }
 
 /// At most this many names in the list; the rest are summed up in a last line.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const MAX_ROWS: usize = 8;
 
 /// At most this many finished cards, the latest ones.
@@ -104,6 +105,7 @@ impl Finished {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn count(rows: &[Row], kind: Kind) -> usize {
     rows.iter().filter(|r| r.kind == kind).count()
 }

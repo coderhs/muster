@@ -471,6 +471,8 @@ pub fn web_dir() -> Option<PathBuf> {
     if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()) {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.join("../Resources/web"));
+            // The Debian package: binaries in /usr/bin, resources in /usr/lib/Muster.
+            candidates.push(dir.join("../lib/Muster/web"));
             candidates.push(dir.join("web"));
             candidates.push(dir.join("../../app/dist"));
         }
@@ -574,10 +576,15 @@ fn tailscale_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("MUSTER_TAILSCALE").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p)).filter(|p| p.is_file());
     }
-    ["/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]
-        .iter()
-        .map(PathBuf::from)
-        .find(|p| p.is_file())
+    [
+        "/usr/local/bin/tailscale",
+        "/usr/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .find(|p| p.is_file())
 }
 
 async fn run_tailscale(ts: &Path, args: &[&str]) -> std::result::Result<String, String> {

@@ -698,6 +698,7 @@ async fn new_card(c: &mut Client, pid: &str, col: &str, agent: &str) -> Value {
         .clone()
 }
 
+#[cfg(target_os = "macos")]
 fn daemon_pid(env: &Env) -> u64 {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(env.home.join("daemon.json")).unwrap()).unwrap();
     v["pid"].as_u64().unwrap()
@@ -746,6 +747,7 @@ async fn stats_only_while_subscribed() {
     assert!(!c.events.iter().any(|e| e.m == "stats.changed"));
 }
 
+#[cfg(target_os = "macos")]
 /// The daemon holds its assertion through `caffeinate -i -w <daemon pid>`; check that
 /// the process exists and that macOS lists its assertion.
 fn assertion_held(pid: u64) -> bool {
@@ -758,6 +760,7 @@ fn assertion_held(pid: u64) -> bool {
     String::from_utf8_lossy(&a.stdout).contains(&format!("pid {child}(caffeinate)"))
 }
 
+#[cfg(target_os = "macos")]
 fn low_battery() -> bool {
     let out = Command::new("/usr/bin/pmset").args(["-g", "batt"]).output().unwrap();
     let t = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -769,6 +772,7 @@ fn low_battery() -> bool {
             .is_some_and(|p| p < 10)
 }
 
+#[cfg(target_os = "macos")]
 async fn wait_for(what: &str, f: impl Fn() -> bool) {
     let deadline = Instant::now() + TIMEOUT;
     while !f() {
@@ -777,6 +781,7 @@ async fn wait_for(what: &str, f: impl Fn() -> bool) {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[tokio::test(flavor = "current_thread")]
 async fn keep_awake_follows_running_cards_and_settings() {
     if low_battery() {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyText } from "../os";
   import { tick } from "svelte";
   import type { Card, CardChanges, CardImage, ChangedFile, ChangeKind, ChangeScope } from "../protocol/types";
   import { errText } from "../protocol/client";
@@ -353,7 +354,7 @@
                       onkeydown={(e) => editorKey(e, l)}
                     ></textarea>
                     <div class="cactions">
-                      <span class="dim small"><kbd>⌘</kbd><kbd>↩</kbd> save · <kbd>esc</kbd> cancel</span>
+                      <span class="dim small"><kbd>{keyText("⌘").replace("+", "")}</kbd><kbd>↩</kbd> save · <kbd>esc</kbd> cancel</span>
                       <span class="grow"></span>
                       {#if c}<button class="btn small" onclick={() => { editText = ""; saveEditor(l); }}>Delete</button>{/if}
                       <button class="btn small" onclick={() => (editing = null)}>Cancel</button>

@@ -1,6 +1,6 @@
 # Muster
 
-A macOS app that runs coding-agent command-line tools (Claude Code, Codex, Cursor,
+A macOS and Linux app that runs coding-agent command-line tools (Claude Code, Codex, Cursor,
 opencode, Gemini, Antigravity, or a plain shell) as cards on a kanban board. Each card
 is a live terminal session. A tracker shows which sessions are waiting for you, which
 are finished and which are still working.
@@ -15,8 +15,11 @@ The screenshots show a made-up demo project.
 
 ## Install
 
-Muster is in early pre-release. You need an Apple silicon Mac (M1 or later) with macOS
-12 or newer.
+Muster is in early pre-release.
+
+### macOS
+
+You need an Apple silicon Mac (M1 or later) with macOS 12 or newer.
 
 1. Install tmux, which Muster runs its sessions in, and the agent CLIs you want to use
    (Claude Code, Codex, Cursor, ...):
@@ -39,6 +42,26 @@ Your data stays on your Mac, in `~/Library/Application Support/Muster`. To updat
 download the new release, replace the app, quit Muster and run `pkill -x musterd`, then
 open it again; running sessions survive. To build it yourself, see
 [Build from source](#build-from-source).
+
+### Linux (Debian and Ubuntu)
+
+New and less tried than the macOS app. You need Debian 13 or newer, or Ubuntu 24.04 or
+newer, on x86-64 or arm64. Muster needs tmux 3.4 or newer; on Debian 12 install it from
+`bookworm-backports` first.
+
+Download `muster_<version>_amd64.deb` (or `_arm64.deb`) from the
+[Releases page](https://github.com/coderhs/muster/releases), then:
+
+```sh
+sudo apt install ./muster_<version>_amd64.deb
+```
+
+Open Muster from your applications menu, or run `muster-app`. Your data stays in
+`~/.local/share/muster`. Shortcuts written with ⌘ in these pages use Ctrl on Linux, and
+copy and paste in a terminal are Ctrl+Shift+C and Ctrl+Shift+V.
+
+Differences from the macOS app: closing the window quits the app (sessions keep running),
+there is no notch strip, and keeping the computer awake needs systemd.
 
 ## Features
 
@@ -174,6 +197,9 @@ Xcode Command Line Tools.
 mise install                 # Rust and Node, pinned in mise.toml
 scripts/install-stable.sh    # builds Muster.app and installs it in /Applications
 ```
+
+On Debian or Ubuntu, install the libraries listed at the top of
+[`scripts/package-deb.sh`](scripts/package-deb.sh), then run it to build a `.deb`.
 
 To work on Muster itself, run the development app next to the stable one:
 

@@ -91,7 +91,11 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let hooks = Arc::new(TrayHooks { app: app.clone(), tray: Mutex::new(None) });
     let watcher = Arc::new(Watcher::new(hooks.clone()));
     let want = watcher.want_stats.clone();
+    // Only macOS recolours a template icon; elsewhere the black one vanishes on a dark panel.
+    #[cfg(target_os = "macos")]
     let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    #[cfg(not(target_os = "macos"))]
+    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
     let tray = TrayIconBuilder::with_id("muster")
         .icon(icon)
         .icon_as_template(true)

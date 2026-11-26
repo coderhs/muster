@@ -32,7 +32,13 @@ impl Pty {
         let mut slave: RawFd = -1;
         let mut ws = winsize(cols, rows);
         unsafe {
-            cvt(libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws))?;
+            cvt(libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::addr_of_mut!(ws),
+            ))?;
         }
         let master = unsafe { OwnedFd::from_raw_fd(master) };
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
