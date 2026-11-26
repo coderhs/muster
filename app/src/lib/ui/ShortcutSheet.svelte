@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isMac, keyText } from "../os";
   import { useApp } from "../state/context";
   import Dialog from "./Dialog.svelte";
 
@@ -41,9 +42,14 @@
         ["⌃⇥", "Terminal / Chat"],
         ["⌃`", "Focus terminal / side panel"],
         ["⌘I", "Hide / show the details column"],
-        ["⌘C  ⌘V", "Copy / paste in the terminal"],
-        ["⌘K", "Clear the terminal (while it has focus)"],
-        ["⌘← ⌘→  ⌥← ⌥→", "Line start / end, word left / right"],
+        // Elsewhere the terminal gets Ctrl chords, so copy and paste add Shift.
+        ...((isMac()
+          ? [
+              ["⌘C  ⌘V", "Copy / paste in the terminal"],
+              ["⌘K", "Clear the terminal (while it has focus)"],
+              ["⌘← ⌘→  ⌥← ⌥→", "Line start / end, word left / right"],
+            ]
+          : [["⇧⌘C  ⇧⌘V", "Copy / paste in the terminal"]]) as Array<[string, string]>),
         ["⇧↵", "New line without sending (agents)"],
         ["⌘-click a path", "Show the file at that line (a plain click in the chat)"],
       ],
@@ -76,7 +82,7 @@
           <div class="label">{g.title}</div>
           <dl>
             {#each g.keys as [k, what] (k)}
-              <dt><kbd>{k}</kbd></dt>
+              <dt><kbd>{keyText(k)}</kbd></dt>
               <dd>{what}</dd>
             {/each}
           </dl>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appMod, keyText } from "./lib/os";
   import type { AppState } from "./lib/state/app.svelte";
   import { provideApp } from "./lib/state/context";
   import Sidebar from "./lib/ui/Sidebar.svelte";
@@ -63,14 +64,14 @@
       app.settingsOpen = true;
     }
     // Cmd+B hides or shows the projects sidebar (the drawer in a narrow window).
-    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "b") {
+    if (appMod(e) && !e.shiftKey && !e.altKey && e.key === "b") {
       e.preventDefault();
       if (narrow) drawer = !drawer;
       else app.toggleSidebar();
     }
     // Cmd+F or Cmd+K opens the card search. In the terminal Cmd+K clears the screen
     // instead, as in Terminal.app.
-    const plainCmd = e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey;
+    const plainCmd = appMod(e) && !e.shiftKey && !e.altKey;
     if (app.fileView) return;
     if (plainCmd && (e.key === "f" || (e.key === "k" && !(e.target as HTMLElement)?.closest?.(".xterm")))) {
       e.preventDefault();
@@ -116,18 +117,18 @@
   <main>
     <div class="toolbar" class:lights={!narrow && app.sidebarCollapsed && inTauri} data-tauri-drag-region>
       {#if narrow}
-        <button class="icon-btn" title="Projects (⌘B)" onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
+        <button class="icon-btn" title={keyText("Projects (⌘B)")} onclick={() => (drawer = !drawer)}><Icon name="sidebar" /></button>
       {:else}
         <button
           class="icon-btn"
-          title={app.sidebarCollapsed ? "Expand projects (⌘B)" : "Collapse projects (⌘B)"}
+          title={keyText(app.sidebarCollapsed ? "Expand projects (⌘B)" : "Collapse projects (⌘B)")}
           aria-pressed={!app.sidebarCollapsed}
           onclick={() => app.toggleSidebar()}><Icon name="sidebar" /></button
         >
       {/if}
       <div class="seg" role="tablist" aria-label="View">
-        <button role="tab" aria-selected={app.view === "board"} class:on={app.view === "board"} onclick={() => app.setView("board")} title="Board (⌘T)">Board</button>
-        <button role="tab" aria-selected={app.view === "tracker"} class:on={app.view === "tracker"} onclick={() => app.setView("tracker")} title="Tracker (⌘T)">
+        <button role="tab" aria-selected={app.view === "board"} class:on={app.view === "board"} onclick={() => app.setView("board")} title={keyText("Board (⌘T)")}>Board</button>
+        <button role="tab" aria-selected={app.view === "tracker"} class:on={app.view === "tracker"} onclick={() => app.setView("tracker")} title={keyText("Tracker (⌘T)")}>
           Tracker{#if counts.needs}<span class="badge-n">{counts.needs}</span>{/if}
         </button>
         <button role="tab" aria-selected={app.view === "docs"} class:on={app.view === "docs"} onclick={() => app.setView("docs")} title="The project's documents and agent instructions">Docs</button>

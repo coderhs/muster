@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { computer } from "../os";
   import { onDestroy, onMount } from "svelte";
   import { useApp } from "../state/context";
   import type { RemoteStatus } from "../protocol/types";
@@ -83,7 +84,7 @@
       <span>
         <b>Use Muster from your phone or tablet over Tailscale</b>
         <small>
-          Sessions keep running on this Mac; other devices only show the board and terminals. Only devices you pair can connect, and only through your
+          Sessions keep running on this {computer()}; other devices only show the board and terminals. Only devices you pair can connect, and only through your
           tailnet.
         </small>
       </span>
@@ -132,7 +133,7 @@
           {/each}
         </ul>
       {/if}
-      <small>The Mac must stay awake and connected for devices to reach it.</small>
+      <small>The {computer()} must stay awake and connected for devices to reach it.</small>
     {/if}
   {/if}
 </section>

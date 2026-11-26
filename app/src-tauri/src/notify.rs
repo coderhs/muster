@@ -1,6 +1,7 @@
-//! macOS notifications through the UserNotifications framework.
+//! Desktop notifications: the UserNotifications framework on macOS, `notify-send` on
+//! Linux.
 //!
-//! Permission is requested the first time a notification is needed. A click on a
+//! On macOS permission is requested the first time a notification is needed. A click on a
 //! notification calls the handler installed with `init` with the card id. The framework
 //! only works from inside an app bundle (Muster.app); a bare binary has no bundle
 //! identifier, so there `status()` reports `Unavailable` and nothing is posted.
@@ -169,10 +170,61 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::{init, post};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub use linux::{init, post};
+
+/// Through `notify-send` (libnotify-bin), which needs no library in the app.
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::*;
+    use std::process::{Command, Stdio};
+
+    pub fn init(on_click: impl Fn(String) + Send + Sync + 'static) {
+        let _ = ON_CLICK.set(Box::new(on_click));
+        let found = Command::new("notify-send").arg("--version").stdout(Stdio::null()).status();
+        set(if found.is_ok_and(|s| s.success()) { Status::Granted } else { Status::Unavailable });
+    }
+
+    /// The body is read as markup by most notification servers.
+    fn escape(s: &str) -> String {
+        s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    }
+
+    pub fn post(title: String, subtitle: String, body: String, card_id: String) {
+        if status() != Status::Granted {
+            return;
+        }
+        let text = [subtitle, body].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
+        // `--wait` keeps the process until the notification goes, and prints the action
+        // taken, so each one waits on a thread of its own.
+        std::thread::spawn(move || {
+            let out = Command::new("notify-send")
+                .args(["--app-name=Muster", "--icon=muster-app", "--wait", "--action=default=Open", "--"])
+                .args([title, escape(&text)])
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output();
+            if out.is_ok_and(|o| o.stdout.starts_with(b"default")) {
+                if let Some(f) = ON_CLICK.get() {
+                    f(card_id);
+                }
+            }
+        });
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn markup_is_escaped() {
+            assert_eq!(super::escape("a < b && <i>"), "a &lt; b &amp;&amp; &lt;i&gt;");
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn init(_on_click: impl Fn(String) + Send + Sync + 'static) {
     set(Status::Unavailable);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn post(_title: String, _subtitle: String, _body: String, _card_id: String) {}

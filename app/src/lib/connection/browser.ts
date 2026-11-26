@@ -37,7 +37,7 @@ export function deviceName(ua: string, touch: boolean): string {
 }
 
 const NOT_PAIRED =
-  "This device is not paired. On your Mac, open Muster → Settings → Remote access → Pair a device, then scan the code or open the link here.";
+  "This device is not paired. On your computer, open Muster → Settings → Remote access → Pair a device, then scan the code or open the link here.";
 
 /** Trades a one-time pairing code for this device's own token. */
 async function pairDevice(code: string): Promise<string> {
@@ -49,7 +49,7 @@ async function pairDevice(code: string): Promise<string> {
   });
   if (!r.ok) {
     const text = (await r.text().catch(() => "")) || `pairing failed (${r.status})`;
-    throw new Error(`${text}. Make a new pairing link on your Mac.`);
+    throw new Error(`${text}. Make a new pairing link on your computer.`);
   }
   const { token } = (await r.json()) as { token: string };
   return token;

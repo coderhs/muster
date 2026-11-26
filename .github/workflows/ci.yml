@@ -35,3 +35,31 @@ jobs:
       - run: mise exec -- npm run check
       - run: mise exec -- npm test
       - run: mise exec -- npm run build
+
+  linux:
+    runs-on: ubuntu-24.04
+    # Debian 13: its tmux (3.5a) is new enough for the daemon.
+    container: rust:1.90.0-trixie
+    steps:
+      - run: |
+          apt-get update
+          apt-get install -y --no-install-recommends tmux git procps libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev file
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.8.0
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup component add clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # As an ordinary user: the daemon's permission tests mean nothing as root.
+      - run: |
+          useradd -m ci
+          chown -R ci . /usr/local/cargo /usr/local/rustup
+          su ci -c "PATH=$PATH CARGO_HOME=$CARGO_HOME RUSTUP_HOME=$RUSTUP_HOME cargo test --workspace --no-fail-fast"
+      - run: npm ci && npm run build
+        working-directory: app
+      # The desktop shell is its own workspace.
+      - run: cargo test
+        working-directory: app/src-tauri
+

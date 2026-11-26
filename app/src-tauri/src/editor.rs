@@ -27,6 +27,7 @@ struct Editor {
     id: &'static str,
     label: &'static str,
     /// App bundle names, any of which means the editor is installed.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     apps: &'static [&'static str],
     open: Open,
 }
@@ -87,6 +88,7 @@ pub struct EditorChoice {
     pub label: String,
 }
 
+#[cfg(target_os = "macos")]
 fn app_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("/Applications"), PathBuf::from("/System/Applications")];
     if let Some(h) = std::env::var_os("HOME") {
@@ -97,8 +99,43 @@ fn app_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+#[cfg(target_os = "macos")]
 fn find_app(e: &Editor) -> Option<PathBuf> {
     app_dirs().into_iter().flat_map(|d| e.apps.iter().map(move |a| d.join(a))).find(|p| p.is_dir())
+}
+
+/// An editor's command-line launcher on Linux. Xcode, Nova and BBEdit have none there.
+#[cfg(not(target_os = "macos"))]
+fn bins(id: &str) -> &'static [&'static str] {
+    match id {
+        "cursor" => &["cursor"],
+        "vscode" => &["code"],
+        "vscode-insiders" => &["code-insiders"],
+        "windsurf" => &["windsurf"],
+        "zed" => &["zed", "zeditor"],
+        "sublime" => &["subl"],
+        "intellij" => &["idea", "intellij-idea-ultimate", "intellij-idea-community"],
+        "webstorm" => &["webstorm"],
+        "rubymine" => &["rubymine"],
+        "pycharm" => &["pycharm", "pycharm-professional", "pycharm-community"],
+        "goland" => &["goland"],
+        "rustrover" => &["rustrover"],
+        "phpstorm" => &["phpstorm"],
+        _ => &[],
+    }
+}
+
+/// `PATH`, then where snaps and per-user installs (JetBrains Toolbox too) put commands,
+/// which an app started from the desktop may not have on its `PATH`.
+#[cfg(not(target_os = "macos"))]
+fn find_app(e: &Editor) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
+    dirs.push(PathBuf::from("/snap/bin"));
+    if let Some(h) = std::env::var_os("HOME").map(PathBuf::from) {
+        dirs.push(h.join(".local/bin"));
+        dirs.push(h.join(".local/share/JetBrains/Toolbox/scripts"));
+    }
+    dirs.into_iter().flat_map(|d| bins(e.id).iter().map(move |b| d.join(b))).find(|p| p.is_file())
 }
 
 /// The installed editors, then the system default and a custom command.
@@ -135,6 +172,7 @@ pub fn write(path: Option<PathBuf>, pref: &EditorPref) -> Result<(), String> {
     std::fs::write(&path, serde_json::to_string(pref).unwrap()).map_err(|e| e.to_string())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn percent_path(p: &str) -> String {
     let mut out = String::new();
     for b in p.bytes() {
@@ -158,6 +196,7 @@ fn fill(template: &str, file: &str, line: u32, col: u32) -> String {
         .replace("{col}", &col.to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn jetbrains_exe(app: &Path) -> Option<PathBuf> {
     let dir = app.join("Contents/MacOS");
     let mut files: Vec<PathBuf> =
@@ -167,6 +206,42 @@ fn jetbrains_exe(app: &Path) -> Option<PathBuf> {
 }
 
 /// The command that opens `file` at `line`:`col` with `pref`.
+#[cfg(not(target_os = "macos"))]
+fn command(pref: &EditorPref, file: &str, line: u32, col: u32) -> Result<Command, String> {
+    match pref.editor.as_str() {
+        SYSTEM => {
+            let mut c = Command::new("xdg-open");
+            c.arg(file);
+            return Ok(c);
+        }
+        CUSTOM => return custom(pref, file, line, col),
+        _ => {}
+    }
+    let e = EDITORS.iter().find(|e| e.id == pref.editor).ok_or_else(|| format!("unknown editor {}", pref.editor))?;
+    let exe = find_app(e).ok_or_else(|| format!("{} is not installed", e.label))?;
+    let mut c = Command::new(exe);
+    let at = format!("{file}:{line}:{col}");
+    match e.open {
+        // The VS Code family needs -g to read a line from the path; Zed does not.
+        Open::Url("zed") | Open::Subl => c.arg(at),
+        Open::Url(_) => c.args(["-g", &at]),
+        Open::JetBrains => c.args(["--line", &line.to_string(), "--column", &col.to_string(), file]),
+        Open::Xed | Open::App => c.arg(file),
+    };
+    Ok(c)
+}
+
+fn custom(pref: &EditorPref, file: &str, line: u32, col: u32) -> Result<Command, String> {
+    if !pref.command.contains("{file}") {
+        return Err("the custom editor command needs {file} in it (Settings)".into());
+    }
+    let mut c = Command::new("/bin/sh");
+    c.args(["-c", &fill(&pref.command, file, line, col)]);
+    Ok(c)
+}
+
+/// The command that opens `file` at `line`:`col` with `pref`.
+#[cfg(target_os = "macos")]
 fn command(pref: &EditorPref, file: &str, line: u32, col: u32) -> Result<Command, String> {
     let open = |args: &[&str]| {
         let mut c = Command::new("/usr/bin/open");
@@ -175,14 +250,7 @@ fn command(pref: &EditorPref, file: &str, line: u32, col: u32) -> Result<Command
     };
     match pref.editor.as_str() {
         SYSTEM => return Ok(open(&[file])),
-        CUSTOM => {
-            if !pref.command.contains("{file}") {
-                return Err("the custom editor command needs {file} in it (Settings)".into());
-            }
-            let mut c = Command::new("/bin/sh");
-            c.args(["-c", &fill(&pref.command, file, line, col)]);
-            return Ok(c);
-        }
+        CUSTOM => return custom(pref, file, line, col),
         _ => {}
     }
     let e = EDITORS.iter().find(|e| e.id == pref.editor).ok_or_else(|| format!("unknown editor {}", pref.editor))?;
@@ -211,17 +279,37 @@ fn command(pref: &EditorPref, file: &str, line: u32, col: u32) -> Result<Command
 
 pub fn open_file(pref: &EditorPref, file: &str, line: Option<u32>, col: Option<u32>) -> Result<(), String> {
     if !Path::new(file).is_absolute() || !Path::new(file).exists() {
-        return Err(format!("{file} is not a file on this Mac"));
+        return Err(format!("{file} is not a file on this computer"));
     }
-    let mut c = command(pref, file, line.unwrap_or(1).max(1), col.unwrap_or(1).max(1))?;
-    c.spawn().map(|_| ()).map_err(|e| e.to_string())
+    let c = command(pref, file, line.unwrap_or(1).max(1), col.unwrap_or(1).max(1))?;
+    spawn(c)
+}
+
+/// Starts a launcher and collects it when it exits, so it leaves no zombie behind.
+fn spawn(mut c: Command) -> Result<(), String> {
+    let mut child = c.spawn().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }
 
 pub fn reveal(file: &str) -> Result<(), String> {
     if !Path::new(file).is_absolute() || !Path::new(file).exists() {
-        return Err(format!("{file} is not a file on this Mac"));
+        return Err(format!("{file} is not a file on this computer"));
     }
-    Command::new("/usr/bin/open").args(["-R", file]).spawn().map(|_| ()).map_err(|e| e.to_string())
+    #[cfg(target_os = "macos")]
+    let c = {
+        let mut c = Command::new("/usr/bin/open");
+        c.args(["-R", file]);
+        c
+    };
+    // Linux has no common way to select a file in the file manager: open its folder.
+    #[cfg(not(target_os = "macos"))]
+    let c = {
+        let mut c = Command::new("xdg-open");
+        c.arg(Path::new(file).parent().unwrap_or_else(|| Path::new("/")));
+        c
+    };
+    spawn(c)
 }
 
 #[cfg(test)]
