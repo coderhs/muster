@@ -725,6 +725,11 @@
   }
   .appr-wrap {
     padding: 8px 10px 0;
+    /* Many questions must scroll here, not push the answer buttons past the modal's clipped edge. */
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 60%;
+    overflow-y: auto;
   }
   .chat-wrap {
     flex: 1;
