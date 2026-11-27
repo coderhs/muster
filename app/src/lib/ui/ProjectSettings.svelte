@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyText } from "../os";
   import type { Id } from "../protocol/types";
   import { useApp } from "../state/context";
   import Dialog from "./Dialog.svelte";
@@ -80,7 +81,7 @@
 
       {#if error}<div class="err">{error}</div>{/if}
       <footer>
-        <span class="keys"><kbd>⌘</kbd><kbd>↵</kbd> save</span>
+        <span class="keys"><kbd>{keyText("⌘").replace("+", "")}</kbd><kbd>↵</kbd> save</span>
         <span class="spacer"></span>
         <button type="button" class="btn" onclick={() => (app.projectSettings = null)}>Cancel</button>
         <button type="submit" class="btn primary" disabled={busy}>Save</button>

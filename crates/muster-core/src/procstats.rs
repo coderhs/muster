@@ -1,7 +1,9 @@
-//! Per-process memory and CPU from the macOS kernel (libproc calls, no crates).
+//! Per-process memory and CPU from the kernel: libproc calls on macOS, `/proc` on
+//! Linux (no crates).
 //!
-//! Memory is the physical footprint (what Activity Monitor shows as "Memory"), not
-//! summed RSS, so shared pages are not counted once per process.
+//! Memory is the physical footprint on macOS (what Activity Monitor shows as
+//! "Memory") and the proportional set size on Linux, not summed RSS, so shared pages
+//! are not counted once per process.
 
 use std::collections::{HashMap, HashSet};
 
@@ -12,75 +14,178 @@ pub struct Usage {
     pub cpu_ns: u64,
 }
 
-#[repr(C)]
-struct MachTimebase {
-    numer: u32,
-    denom: u32,
-}
+#[cfg(target_os = "linux")]
+use linux::parent_of;
+#[cfg(target_os = "linux")]
+pub use linux::{all_pids, started, usage};
+#[cfg(target_os = "macos")]
+use mac::parent_of;
+#[cfg(target_os = "macos")]
+pub use mac::{all_pids, started, usage};
 
-extern "C" {
-    fn mach_timebase_info(info: *mut MachTimebase) -> libc::c_int;
-}
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::Usage;
 
-/// Converts rusage CPU ticks to nanoseconds (ticks are not nanoseconds on Apple silicon).
-fn timebase() -> (u64, u64) {
-    let mut tb = MachTimebase { numer: 0, denom: 0 };
-    unsafe { mach_timebase_info(&mut tb) };
-    if tb.denom == 0 {
-        (1, 1)
-    } else {
-        (tb.numer as u64, tb.denom as u64)
+    #[repr(C)]
+    struct MachTimebase {
+        numer: u32,
+        denom: u32,
+    }
+
+    extern "C" {
+        fn mach_timebase_info(info: *mut MachTimebase) -> libc::c_int;
+    }
+
+    /// Converts rusage CPU ticks to nanoseconds (ticks are not nanoseconds on Apple silicon).
+    fn timebase() -> (u64, u64) {
+        let mut tb = MachTimebase { numer: 0, denom: 0 };
+        unsafe { mach_timebase_info(&mut tb) };
+        if tb.denom == 0 {
+            (1, 1)
+        } else {
+            (tb.numer as u64, tb.denom as u64)
+        }
+    }
+
+    /// Memory and CPU time of one process (`None` if it is gone or not ours).
+    pub fn usage(pid: i32) -> Option<Usage> {
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        let r = unsafe {
+            libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, &mut info as *mut _ as *mut libc::rusage_info_t)
+        };
+        if r != 0 {
+            return None;
+        }
+        let (n, d) = timebase();
+        let ticks = info.ri_user_time + info.ri_system_time;
+        Some(Usage { footprint: info.ri_phys_footprint, cpu_ns: (ticks as u128 * n as u128 / d as u128) as u64 })
+    }
+
+    /// Every pid on the system.
+    pub fn all_pids() -> Vec<i32> {
+        let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        if n <= 0 {
+            return vec![];
+        }
+        let mut buf = vec![0i32; n as usize + 64];
+        let bytes = (buf.len() * std::mem::size_of::<i32>()) as libc::c_int;
+        let got = unsafe { libc::proc_listallpids(buf.as_mut_ptr().cast(), bytes) };
+        buf.truncate(got.max(0) as usize);
+        buf.retain(|&p| p > 0);
+        buf
+    }
+
+    pub(super) fn parent_of(pid: i32) -> Option<i32> {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let r = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
+        };
+        (r == size).then_some(info.pbi_ppid as i32)
+    }
+
+    /// When a process started (seconds since the epoch) and its short name.
+    pub fn started(pid: i32) -> Option<(i64, String)> {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let r = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
+        };
+        if r != size {
+            return None;
+        }
+        let name: Vec<u8> = info.pbi_comm.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+        Some((info.pbi_start_tvsec as i64, String::from_utf8_lossy(&name).into_owned()))
     }
 }
 
-/// Memory and CPU time of one process (`None` if it is gone or not ours).
-pub fn usage(pid: i32) -> Option<Usage> {
-    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
-    let r =
-        unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, &mut info as *mut _ as *mut libc::rusage_info_t) };
-    if r != 0 {
-        return None;
-    }
-    let (n, d) = timebase();
-    let ticks = info.ri_user_time + info.ri_system_time;
-    Some(Usage { footprint: info.ri_phys_footprint, cpu_ns: (ticks as u128 * n as u128 / d as u128) as u64 })
-}
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::Usage;
 
-/// Every pid on the system.
-pub fn all_pids() -> Vec<i32> {
-    let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-    if n <= 0 {
-        return vec![];
-    }
-    let mut buf = vec![0i32; n as usize + 64];
-    let bytes = (buf.len() * std::mem::size_of::<i32>()) as libc::c_int;
-    let got = unsafe { libc::proc_listallpids(buf.as_mut_ptr().cast(), bytes) };
-    buf.truncate(got.max(0) as usize);
-    buf.retain(|&p| p > 0);
-    buf
-}
+    // Positions in the fields after the name (proc(5) numbers them from 3).
+    const PPID: usize = 1;
+    const UTIME: usize = 11;
+    const STIME: usize = 12;
+    const STARTTIME: usize = 19;
 
-fn parent(pid: i32) -> Option<i32> {
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    let r = unsafe {
-        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
-    };
-    (r == size).then_some(info.pbi_ppid as i32)
-}
-
-/// When a process started (seconds since the epoch) and its short name.
-pub fn started(pid: i32) -> Option<(i64, String)> {
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    let r = unsafe {
-        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
-    };
-    if r != size {
-        return None;
+    /// The command name in `/proc/<pid>/stat` and the fields that follow it. The name
+    /// is in parentheses and may itself contain spaces and parentheses.
+    fn parse_stat(text: &str) -> Option<(String, Vec<String>)> {
+        let open = text.find('(')?;
+        let close = text.rfind(')')?;
+        let name = text.get(open + 1..close)?.to_string();
+        Some((name, text[close + 1..].split_whitespace().map(str::to_string).collect()))
     }
-    let name: Vec<u8> = info.pbi_comm.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
-    Some((info.pbi_start_tvsec as i64, String::from_utf8_lossy(&name).into_owned()))
+
+    fn stat(pid: i32) -> Option<(String, Vec<String>)> {
+        if pid <= 0 {
+            return None;
+        }
+        parse_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+    }
+
+    fn number(fields: &[String], i: usize) -> Option<u64> {
+        fields.get(i)?.parse().ok()
+    }
+
+    fn ticks_per_second() -> u64 {
+        u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|&n| n > 0).unwrap_or(100)
+    }
+
+    /// A `Name:   123 kB` line, in bytes.
+    fn kb_line(text: &str, key: &str) -> Option<u64> {
+        let rest = text.lines().find_map(|l| l.strip_prefix(key))?;
+        rest.split_whitespace().next()?.parse::<u64>().ok().map(|kb| kb * 1024)
+    }
+
+    /// Proportional set size; resident size on kernels without `smaps_rollup`.
+    fn memory(pid: i32) -> Option<u64> {
+        if let Ok(t) = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")) {
+            if let Some(n) = kb_line(&t, "Pss:") {
+                return Some(n);
+            }
+        }
+        kb_line(&std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?, "VmRSS:")
+    }
+
+    /// Memory and CPU time of one process (`None` if it is gone or not ours).
+    pub fn usage(pid: i32) -> Option<Usage> {
+        let (_, f) = stat(pid)?;
+        let ticks = number(&f, UTIME)? + number(&f, STIME)?;
+        let cpu_ns = (ticks as u128 * 1_000_000_000 / ticks_per_second() as u128) as u64;
+        Some(Usage { footprint: memory(pid)?, cpu_ns })
+    }
+
+    /// Every pid on the system.
+    pub fn all_pids() -> Vec<i32> {
+        let Ok(dir) = std::fs::read_dir("/proc") else { return vec![] };
+        dir.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).filter(|&p| p > 0).collect()
+    }
+
+    pub(super) fn parent_of(pid: i32) -> Option<i32> {
+        i32::try_from(number(&stat(pid)?.1, PPID)?).ok()
+    }
+
+    /// When a process started (seconds since the epoch) and its short name.
+    pub fn started(pid: i32) -> Option<(i64, String)> {
+        let (name, f) = stat(pid)?;
+        let since_boot = number(&f, STARTTIME)? / ticks_per_second();
+        let system = std::fs::read_to_string("/proc/stat").ok()?;
+        let boot: i64 = system.lines().find_map(|l| l.strip_prefix("btime "))?.trim().parse().ok()?;
+        Some((boot + since_boot as i64, name))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn a_command_name_with_spaces_and_parentheses() {
+            let (name, f) = super::parse_stat("42 (a b) c)) S 7 42 42 0 -1").unwrap();
+            assert_eq!(name, "a b) c)");
+            assert_eq!(f[super::PPID], "7");
+        }
+    }
 }
 
 /// A snapshot of the process table: parent and session of each pid.
@@ -141,10 +246,6 @@ impl ProcTable {
         v.sort_unstable();
         v
     }
-}
-
-fn parent_of(pid: i32) -> Option<i32> {
-    parent(pid)
 }
 
 #[cfg(test)]

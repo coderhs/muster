@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isMac, keyText } from "../os";
   // A file named in a card's terminal or chat, shown over the card at its line: Quick
   // Look for code. Esc closes it; the buttons hand the file to the user's editor.
   import { onMount, tick } from "svelte";
@@ -134,12 +135,12 @@
     </div>
     <div class="actions">
       {#if canEdit}
-        <button class="btn primary" onclick={openEditor} disabled={!file} title="Open in your editor (⌘O); choose it in Settings">
+        <button class="btn primary" onclick={openEditor} disabled={!file} title={keyText("Open in your editor (⌘O); choose it in Settings")}>
           Open in {editorLabel ?? "editor"}
         </button>
       {/if}
       {#if app.platform.revealFile}
-        <button class="btn" onclick={reveal} disabled={!file}>Reveal in Finder</button>
+        <button class="btn" onclick={reveal} disabled={!file}>{isMac() ? "Reveal in Finder" : "Open folder"}</button>
       {/if}
       <button class="btn" onclick={copyPath}>Copy path</button>
       <button class="icon-btn" onclick={close} aria-label="Close" title="Close (Esc)"><Icon name="close" size={14} /></button>

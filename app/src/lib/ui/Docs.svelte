@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import { keyText } from "../os";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import type { Id } from "../protocol/types";
 
@@ -440,7 +441,7 @@
         {#if shown && editing}
           <button class="btn small" aria-pressed={preview} class:pressed={preview} onclick={() => (preview = !preview)}>Preview</button>
           <button class="btn small" disabled={saving} onclick={discard}>{draft === undefined ? "Close" : "Discard"}</button>
-          <button class="btn small primary" disabled={saving || !ready || draft === undefined} onclick={() => void save()} title="Save (⌘S)">{saving ? "Saving…" : "Save"}</button>
+          <button class="btn small primary" disabled={saving || !ready || draft === undefined} onclick={() => void save()} title={keyText("Save (⌘S)")}>{saving ? "Saving…" : "Save"}</button>
         {:else}
           {#if shown}
             <button class="btn small" disabled={shown.cut || !ready} onclick={() => void startEdit()} title={shown.cut ? "This file is too long to edit here" : "Edit this file"}>

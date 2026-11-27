@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyText } from "../os";
   // The comments of one card: yours and the agents'. The daemon stamps each author.
   import { tick } from "svelte";
   import type { Comment, Id } from "../protocol/types";
@@ -122,7 +123,7 @@
       }}
     ></textarea>
     <div class="row">
-      <span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> to post</span>
+      <span class="hint"><kbd>{keyText("⌘").replace("+", "")}</kbd><kbd>↵</kbd> to post</span>
       <button class="btn small primary" type="submit" disabled={!draft.trim() || posting}>Comment</button>
     </div>
   </form>

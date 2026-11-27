@@ -47,6 +47,22 @@ fn log_max_bytes() -> u64 {
     std::env::var("MUSTER_LOG_MAX_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(5 * 1024 * 1024)
 }
 
+/// The file stderr goes to.
+#[cfg(target_os = "macos")]
+fn stderr_path() -> Option<PathBuf> {
+    let mut buf = vec![0u8; libc::PATH_MAX as usize];
+    if unsafe { libc::fcntl(2, libc::F_GETPATH, buf.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(0);
+    Some(PathBuf::from(String::from_utf8_lossy(&buf[..len]).into_owned()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn stderr_path() -> Option<PathBuf> {
+    std::fs::read_link("/proc/self/fd/2").ok()
+}
+
 /// When stderr is a regular file (launchd or the app redirect it) larger than the
 /// limit, it is renamed to `<name>.1` (replacing an older one) and a fresh file takes
 /// its place, so the log never grows without bound.
@@ -58,12 +74,7 @@ pub fn rotate_log() {
     if (st.st_size as u64) <= log_max_bytes() {
         return;
     }
-    let mut buf = vec![0u8; libc::PATH_MAX as usize];
-    if unsafe { libc::fcntl(2, libc::F_GETPATH, buf.as_mut_ptr()) } != 0 {
-        return;
-    }
-    let len = buf.iter().position(|&b| b == 0).unwrap_or(0);
-    let path = PathBuf::from(String::from_utf8_lossy(&buf[..len]).into_owned());
+    let Some(path) = stderr_path() else { return };
     let mut old = path.clone().into_os_string();
     old.push(".1");
     if std::fs::rename(&path, &old).is_err() {
@@ -85,7 +96,8 @@ pub fn timestamp() -> String {
 const USAGE: &str = "usage: musterd [run | install-agent | uninstall-agent | print-plist | --version]
 
 Environment:
-  MUSTER_HOME          data directory (default ~/Library/Application Support/Muster)
+  MUSTER_HOME          data directory (default ~/Library/Application Support/Muster,
+                       or ~/.local/share/muster on Linux)
   MUSTER_PORT          fixed port to listen on (default: ephemeral)
   MUSTER_TMUX_SOCKET   tmux socket name, must start with \"muster\" (default muster)
   MUSTER_TMUX          path to the tmux binary";
@@ -104,13 +116,28 @@ pub fn muster_home() -> PathBuf {
         return PathBuf::from(h);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    default_home(&home)
+}
+
+#[cfg(target_os = "macos")]
+fn default_home(home: &Path) -> PathBuf {
     home.join("Library/Application Support/Muster")
+}
+
+/// The same rule in the daemon, the CLI and the app.
+#[cfg(not(target_os = "macos"))]
+fn default_home(home: &Path) -> PathBuf {
+    let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute());
+    xdg.unwrap_or_else(|| home.join(".local/share")).join("muster")
 }
 
 fn main() {
     let arg = std::env::args().nth(1);
     let result = match arg.as_deref() {
         None | Some("run") => run(),
+        Some("install-agent" | "uninstall-agent" | "print-plist") if !cfg!(target_os = "macos") => {
+            Err("this command manages a launchd agent, which is macOS only; the app starts the daemon itself".into())
+        }
         Some("install-agent") => launchd::install(),
         Some("uninstall-agent") => launchd::uninstall(),
         Some("print-plist") => {

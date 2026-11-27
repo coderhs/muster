@@ -37,7 +37,8 @@ For agents inside a card ($MUSTER_CARD_ID is the caller):
   send <card> <text>                  delivered when that agent is between turns
 
 Cards may be given by id or unique id prefix; columns by id or title.
-Uses $MUSTER_HOME (default ~/Library/Application Support/Muster).";
+Uses $MUSTER_HOME (default ~/Library/Application Support/Muster, or
+~/.local/share/muster on Linux).";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

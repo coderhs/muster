@@ -1,14 +1,19 @@
 name: Package
 
-# Builds the shareable Muster.app zip (scripts/package.sh) on a clean runner.
+# Builds the shareable downloads on clean runners: the Muster.app zip
+# (scripts/package.sh) and the Debian packages (scripts/package-deb.sh).
 # Run it from the Actions tab ("Run workflow"), choosing the branch or tag to build.
-# The zip is attached to the run as an artifact (Muster-<commit>-macos-arm64.zip).
+# They are attached to the run as artifacts.
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the Debian packages, such as 0.1.3 (empty for the app's own)
+        required: false
 
 jobs:
-  package:
+  macos:
     # macos-latest is Apple silicon, which package.sh requires.
     runs-on: macos-latest
     steps:
@@ -23,5 +28,33 @@ jobs:
         with:
           # Uploaded as is: the download is the zip itself, named after the build.
           path: target/package/*.zip
+          archive: false
+          if-no-files-found: error
+
+  deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    # Debian 12, for an old enough glibc that the package also runs on Ubuntu 24.04.
+    container: rust:1.90.0-bookworm
+    steps:
+      - run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev file
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.8.0
+      # The build records its commit, and git refuses a checkout owned by another user.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: scripts/package-deb.sh "$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+      - uses: actions/upload-artifact@v7
+        with:
+          path: target/package/*.deb
           archive: false
           if-no-files-found: error

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appMod, computer, keyText } from "../os";
   import { isSleeping } from "./idle";
   import Select from "./Select.svelte";
   import DatePicker from "./DatePicker.svelte";
@@ -270,7 +271,7 @@
   function onKey(e: KeyboardEvent) {
     if (deleting || killing || app.searchOpen || app.fileView) return;
     const inTerm = !!(e.target as HTMLElement)?.closest?.(".xterm");
-    if (e.key === "w" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+    if (e.key === "w" && appMod(e) && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       close();
     } else if (e.key === "Escape" && !inTerm && !e.defaultPrevented) {
@@ -282,7 +283,7 @@
       e.preventDefault();
       const i = tabs.indexOf(tab);
       setTab(tabs[(i + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length]);
-    } else if (e.key === "i" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+    } else if (e.key === "i" && appMod(e) && !e.shiftKey && !e.altKey) {
       // Cmd+I hides or shows the details column.
       e.preventDefault();
       app.toggleCardSide();
@@ -360,11 +361,11 @@
         <button
           class="icon-btn"
           class:hidden-side={app.cardSideCollapsed}
-          title={app.cardSideCollapsed ? "Show details (⌘I)" : "Hide details (⌘I)"}
+          title={keyText(app.cardSideCollapsed ? "Show details (⌘I)" : "Hide details (⌘I)")}
           aria-pressed={!app.cardSideCollapsed}
           onclick={() => app.toggleCardSide()}><Icon name="sidebarRight" stroke={app.cardSideCollapsed ? 2.4 : 1.5} /></button
         >
-        <button class="icon-btn" title="Close (Esc, ⌘W)" onclick={close}><Icon name="close" /></button>
+        <button class="icon-btn" title={keyText("Close (Esc, ⌘W)")} onclick={close}><Icon name="close" /></button>
       </header>
 
       <div class="main">
@@ -410,7 +411,7 @@
           {#if !termShown}
             <div class="noterm">
               {#if card.restorable}
-                <p>This session was interrupted (the Mac restarted or tmux stopped). Restoring replays its scrollback and resumes the agent's conversation.</p>
+                <p>This session was interrupted (the {computer()} restarted or tmux stopped). Restoring replays its scrollback and resumes the agent's conversation.</p>
               {:else if card.status === "draft"}
                 <p>This card is a draft. Starting it launches <b>{agent.label}</b>{card.prompt ? " with its prompt" : ""}.</p>
               {:else if isSleeping(card)}

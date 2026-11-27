@@ -16,7 +16,19 @@ pub fn muster_home() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(h));
     }
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join("Library/Application Support/Muster"))
+    Ok(default_home(Path::new(&home)))
+}
+
+#[cfg(target_os = "macos")]
+fn default_home(home: &Path) -> PathBuf {
+    home.join("Library/Application Support/Muster")
+}
+
+/// The same rule in the daemon, the CLI and the app.
+#[cfg(not(target_os = "macos"))]
+fn default_home(home: &Path) -> PathBuf {
+    let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute());
+    xdg.unwrap_or_else(|| home.join(".local/share")).join("muster")
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -59,6 +71,16 @@ pub fn is_live(home: &Path) -> bool {
 }
 
 /// Guards against a stale daemon.json whose pid now belongs to another program.
+#[cfg(target_os = "linux")]
+fn is_musterd(pid: i32) -> bool {
+    // Not allowed to look (other user): trust the pid.
+    let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else { return true };
+    // An upgrade replaces the file under a running daemon: "musterd (deleted)".
+    exe.file_name().is_some_and(|f| f == "musterd" || f == "musterd (deleted)")
+}
+
+/// Guards against a stale daemon.json whose pid now belongs to another program.
+#[cfg(not(target_os = "linux"))]
 fn is_musterd(pid: i32) -> bool {
     let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };

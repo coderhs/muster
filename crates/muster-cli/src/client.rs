@@ -1,6 +1,6 @@
 //! Minimal protocol client.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use futures_util::{SinkExt, StreamExt};
 use muster_proto::*;
@@ -24,7 +24,19 @@ pub fn muster_home() -> PathBuf {
         return PathBuf::from(h);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    default_home(&home)
+}
+
+#[cfg(target_os = "macos")]
+fn default_home(home: &Path) -> PathBuf {
     home.join("Library/Application Support/Muster")
+}
+
+/// The same rule in the daemon, the CLI and the app.
+#[cfg(not(target_os = "macos"))]
+fn default_home(home: &Path) -> PathBuf {
+    let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute());
+    xdg.unwrap_or_else(|| home.join(".local/share")).join("muster")
 }
 
 /// Incoming traffic other than the response being waited for.

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { keyText } from "../os";
+
+  const mod = keyText("⌘").replace("+", "");
   import Select from "./Select.svelte";
   import { CATEGORY_COLOR, colorOr } from "./colors";
   import type { Id } from "../protocol/types";
@@ -216,7 +219,7 @@
     {#if error}<div class="err"><Icon name="warning" size={14} />{error}</div>{/if}
 
     <footer>
-      <span class="keys"><kbd>⌘</kbd><kbd>↵</kbd> start · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>↵</kbd> draft</span>
+      <span class="keys"><kbd>{mod}</kbd><kbd>↵</kbd> start · <kbd>⇧</kbd><kbd>{mod}</kbd><kbd>↵</kbd> draft</span>
       <span class="spacer"></span>
       <button class="btn" onclick={() => (app.newCard = null)}>Cancel</button>
       <button class="btn" disabled={!canSubmit} onclick={() => submit(false)}>Save draft</button>
