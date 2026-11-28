@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use muster_proto::{
-    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, ColumnSort, Comment, Device, ErrorCode, Link, Message, Priority,
-    Project,
+    Author, AuthorKind, Card, CardStatus, Column, ColumnCategory, ColumnSort, Comment, Device, ErrorCode, Link,
+    Message, Priority, Project,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -492,11 +492,9 @@ impl Store {
         for (table, col, ty) in EXTRA {
             let has: bool = self
                 .conn
-                .query_row(
-                    &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
-                    [col],
-                    |r| r.get::<_, i64>(0),
-                )
+                .query_row(&format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"), [col], |r| {
+                    r.get::<_, i64>(0)
+                })
                 .map_err(sql_err)?
                 > 0;
             if !has {
